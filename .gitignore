@@ -1,0 +1,6 @@
+# nothing here is built - the game is plain files served as-is
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/

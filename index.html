@@ -1,0 +1,3049 @@
+<title>Deadzone Idle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+/* ==========================================================================
+   Deadzone - one dark world, deliberately single-theme.
+   The page is a game viewport: it paints its own ground and never borrows
+   the host's, in either light or dark.
+   ========================================================================== */
+:root{
+  color-scheme: dark;
+
+  --void:#05070A;
+  --ash:#0A0E12;
+  --slab:#11161B;
+  --raise:#182027;
+  --line:rgba(228,224,214,.12);
+  --line-soft:rgba(228,224,214,.06);
+
+  --bone:#E4E0D6;
+  --smoke:#8A939B;
+  --dim:#59636C;
+
+  --rust:#D2562A;
+  --rust-dk:#8E3517;
+  --moss:#7FA45C;
+  --amber:#E3A63F;
+  --ice:#6FA8C4;
+
+  /* ---- the instrument blue ----
+     Panels are a cold slate and everything live on them is one blue,
+     which is what ties a HUD together: the same colour on the active
+     tab, the selected weapon, the fire ring and the XP bar says "this
+     is the part that is yours" every time it appears. */
+  --hud-bg:#0D141C;
+  --hud-bg2:#141E29;
+  --hud-line:rgba(126,164,196,.20);
+  --hud-line2:rgba(126,164,196,.10);
+  --blue:#4EA8E8;
+  --blue-dk:#1F5C8C;
+  --blue-glow:rgba(78,168,232,.34);
+  --hp:#5FC45A;
+  --xp:#3E9BE0;
+
+  --f-disp:"Big Shoulders Display","Oswald","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Barlow","Helvetica Neue",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+
+  --sa-t:env(safe-area-inset-top,0px);
+  --sa-b:env(safe-area-inset-bottom,0px);
+  --sa-l:env(safe-area-inset-left,0px);
+  --sa-r:env(safe-area-inset-right,0px);
+
+  --hud-h:84px;    /* how far down the top instruments reach */
+  /* Everything down the left edge is this wide. It used to be four
+     different widths - 205, 250, 132, 132 - stacked on the same margin,
+     which is why the side of the screen looked like a pile rather than a
+     panel. One column, one edge, top to bottom. */
+  /* The reference runs its cards at about a fifth of the screen, and a
+     card carrying a portrait, a level, two labelled bars and their
+     figures genuinely needs that - at 168 the bars came out 64px wide
+     and the weapon name was "M...". */
+  --col:222px;
+  --rail-w:54px;   /* a command-rail button */
+  /* How far in from the right edge anything must start to clear the rail:
+     the rail is a slab now, so its button width is no longer the whole of
+     it - there is its own padding and border either side, and a gap. */
+  --rail-out:calc(var(--rail-w) + 34px);
+  --mm:168px;      /* the minimap square - matches --col */
+}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* Nothing here is prose. A drag across the world used to start a text
+   selection, which highlights half the HUD and eats the drag; a long
+   press on a phone raised the copy callout over whatever was underneath.
+   Set on the root as well as the body, because the selection can start
+   on the page outside the body box. */
+/* The page is a fixed pane, not a document.
+
+   Both elements, because either one left scrollable is enough to let a
+   phone drag the whole game up off the top of the screen and leave a
+   white band under it. `overscroll-behavior` kills the rubber band even
+   where there is nothing to scroll to, and `100dvh` tracks the browser
+   chrome sliding in and out rather than leaving a gap where it was. */
+html,body{position:fixed;inset:0;width:100%;height:100%;height:100dvh;
+  margin:0;padding:0;overflow:hidden;overscroll-behavior:none;
+  -webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;
+  user-select:none;-webkit-touch-callout:none}
+body{
+  position:fixed;inset:0;overflow:hidden;
+  background:var(--void);color:var(--bone);
+  font-family:var(--f-body);font-size:15px;line-height:1.45;
+  -webkit-user-select:none;user-select:none;overscroll-behavior:none;
+  -webkit-text-size-adjust:100%;
+}
+button{font:inherit;color:inherit;background:none;border:0;margin:0;padding:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+h3,h4{margin:0}
+
+#scene{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;
+  cursor:crosshair}
+body.building #scene{cursor:cell}
+
+/* ============================ HUD ======================================== */
+#hud{
+  position:absolute;top:0;left:0;right:0;z-index:5;pointer-events:none;
+  padding:calc(var(--sa-t) + 10px) calc(var(--sa-r) + 12px) 0 calc(var(--sa-l) + 12px);
+  display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  gap:10px;align-items:start;
+}
+#hud button,#hud .pl,#hud .res{pointer-events:auto}
+
+/* Instrument slab - the one surface every HUD cluster is made from.
+
+   A hairline of light along the top edge and a darker one along the
+   bottom is the whole difference between a translucent rectangle and a
+   panel milled out of something. It is the same trick the world art
+   uses on every box, applied to the furniture. */
+.inst{
+  position:relative;
+  background:
+    linear-gradient(180deg,rgba(228,224,214,.05),rgba(228,224,214,0) 38%),
+    linear-gradient(180deg,rgba(19,25,31,.93),rgba(7,10,14,.95));
+  border:1px solid var(--line);
+  -webkit-backdrop-filter:blur(14px) saturate(.88);backdrop-filter:blur(14px) saturate(.88);
+  box-shadow:0 8px 28px rgba(0,0,0,.58),
+             inset 0 1px 0 rgba(228,224,214,.09),
+             inset 0 -1px 0 rgba(0,0,0,.5);
+}
+
+.hcol.l{display:flex;align-items:flex-start;min-width:0}
+
+/* ---- survivor ----
+   Portrait, then a column with the two bars that matter. It used to run
+   205px wide with the health floating off to the right of its own track
+   and the weapon on a line of its own, so three facts took the room of
+   six. */
+#sv{display:flex;align-items:center;gap:10px;padding:7px 10px 7px 7px;border-radius:12px;
+  pointer-events:auto;text-align:left;width:var(--col)}
+#sv:active{transform:translateY(1px)}
+
+/* A round portrait with the level worn on it, the way the reference has it.
+   The XP ring is a conic gradient rather than a bar, so the badge carries
+   both numbers without a second widget. */
+.svmark{position:relative;width:46px;height:46px;flex:none;border-radius:50%;
+  display:grid;place-items:center}
+.svmark i{position:absolute;inset:0;border-radius:50%;
+  background:conic-gradient(var(--amber) var(--xpdeg,0deg),rgba(228,224,214,.13) 0)}
+.svmark i em{display:none}
+.svmark::before{content:"";position:absolute;inset:3px;border-radius:50%;
+  background:linear-gradient(165deg,#44544A,#1C2622);
+  border:1px solid rgba(228,224,214,.2);
+  box-shadow:inset 0 2px 7px rgba(0,0,0,.45)}
+/* the survivor's own face, painted once into this canvas */
+#svFace{position:absolute;inset:4px;width:calc(100% - 8px);height:calc(100% - 8px);
+  border-radius:50%;display:block}
+.svmark b{position:absolute;right:-2px;bottom:-2px;min-width:19px;height:19px;padding:0 4px;
+  border-radius:11px;display:grid;place-items:center;
+  font-family:var(--f-disp);font-weight:700;font-size:13px;line-height:1;
+  color:#120D04;background:linear-gradient(180deg,#F0BC58,#D08F26);
+  border:1.5px solid rgba(5,7,10,.85);
+  font-variant-numeric:tabular-nums}
+.svcol{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+/* the figure sits ON the bar, not beside it - a number in its own column
+   was costing 34px of a 184px card to say what the bar already showed */
+.hprow{position:relative;display:block}
+.hptrack{position:relative;height:15px;border-radius:4px;background:rgba(0,0,0,.66);
+  border:1px solid var(--line-soft);overflow:hidden;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.55)}
+.hptrack>i{position:absolute;inset:0;transform-origin:left;background:var(--moss);
+  transition:transform .14s linear,background .3s}
+/* Static, not absolute. This was pinned to the top-right of the card in
+   the layout before the bars were a grid; left absolute it never joined
+   the grid, so the figure column measured zero and the number floated a
+   row and a half above the bar it belongs to. An ID beats any class
+   override, so it has to be corrected here rather than layered over. */
+#svHpNum{position:static;line-height:15px;
+  font-family:var(--f-mono);font-size:10.5px;font-weight:500;color:#F2EEE2;
+  font-variant-numeric:tabular-nums;text-shadow:0 1px 2px rgba(0,0,0,.75);
+  pointer-events:none}
+.wrow{display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0}
+#svWpn{font-family:var(--f-disp);font-weight:700;font-size:14px;letter-spacing:.06em;
+  color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#svAmmo{font-family:var(--f-mono);font-size:11px;color:var(--smoke);
+  font-variant-numeric:tabular-nums;white-space:nowrap;flex:none}
+#svAmmo.lo{color:var(--rust)}
+#svAmmo.rel{color:var(--amber)}
+
+/* ---- world ---- */
+#worldChip{display:flex;align-items:center;gap:11px;padding:8px 16px;border-radius:14px;
+  justify-self:center;flex:none;z-index:1}
+#wcOrb{width:15px;height:15px;border-radius:50%;flex:none;
+  background:radial-gradient(circle at 34% 30%,#FFE7A8,#E0A33C)}
+.wctext{display:flex;align-items:baseline;gap:8px;white-space:nowrap}
+#wcDay{font-family:var(--f-disp);font-weight:700;font-size:16px;letter-spacing:.07em;
+  text-transform:uppercase}
+#wcTime{font-family:var(--f-mono);font-size:14px;color:var(--bone);
+  font-variant-numeric:tabular-nums}
+#wcPhase{font-family:var(--f-disp);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--dim)}
+/* which part of town you are standing in. The city has a dozen districts
+   and they are the whole navigation system, so the HUD has to say. */
+#wcZone{font-family:var(--f-disp);font-size:11.5px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--smoke);padding-left:9px;margin-left:1px;
+  border-left:1px solid var(--line-soft)}
+#wcZone.hot{color:#D2562A}
+#threat{display:none;align-items:center;gap:7px;margin-left:2px;padding:3px 10px 3px 8px;
+  border-radius:9px;background:rgba(228,224,214,.06);border:1px solid var(--line-soft)}
+#threat.on{display:flex}
+#threat.hot{background:rgba(210,86,42,.14);border-color:rgba(210,86,42,.42)}
+#threat .dot{width:6px;height:6px;border-radius:50%;background:var(--smoke)}
+#threat.hot .dot{background:var(--rust);animation:pulse 1.1s ease-in-out infinite}
+#threatN{font-family:var(--f-mono);font-size:11.5px;color:var(--smoke);white-space:nowrap}
+#threat.hot #threatN{color:var(--rust)}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(1.5)}}
+
+/* ---- resources ---- */
+/* Separate capsules rather than one welded strip, each with the + that says
+   where more of it comes from. */
+.rcol{display:flex;justify-content:flex-end;align-items:flex-start;gap:7px;flex-wrap:wrap}
+/* One instrument with four cells in it, not four instruments.
+   Labelling each capsule was the right call and made each of them wide
+   enough that four would not fit the corner - so they lose their own
+   borders, padding and gaps and share one slab, which buys back the
+   ~90px the labels needed and matches the command rail besides. */
+/* One slab of cells. It scrolls rather than clipping, because a counter
+   you cannot see is worse than a counter you have to nudge - and on a
+   phone in portrait there is genuinely not room for four of them with
+   their names on. */
+#resRow{display:flex;align-items:stretch;gap:0;padding:4px;border-radius:13px;
+  max-width:100%;overflow-x:auto;overscroll-behavior:contain;
+  scrollbar-width:none}
+#resRow::-webkit-scrollbar{display:none}
+#resRow .res{flex:0 0 auto}
+/* A cell says four things: which resource, how much, how close to the
+   cap, and - by being a button - where more of it comes from. It used to
+   say the second of those and leave you to recognise the other three
+   from a 12px mark. */
+#resRow .res{position:relative;display:flex;align-items:center;gap:7px;
+  padding:5px 11px 6px;border-radius:8px;overflow:hidden;text-align:left;
+  transition:background .13s}
+#resRow .res + .res::before,#resRow .more::before{content:"";position:absolute;
+  left:0;top:6px;bottom:6px;width:1px;background:var(--line-soft)}
+#resRow .res:hover{background:rgba(228,224,214,.07)}
+#resRow .res:active{transform:translateY(1px)}
+svg.gi{vertical-align:-1px;flex:none;opacity:.9}
+#resRow .res .rmk{width:23px;height:23px;flex:none;border-radius:7px;display:grid;
+  place-items:center;background:rgba(228,224,214,.08);
+  box-shadow:inset 0 1px 0 rgba(228,224,214,.07)}
+#resRow .res .rmk svg.gi{opacity:1}
+#resRow .res .rtx{display:flex;flex-direction:column;align-items:flex-start;gap:1px;
+  line-height:1;min-width:0}
+#resRow .res .rtx s{text-decoration:none;font-family:var(--f-disp);font-size:8.5px;
+  font-weight:600;letter-spacing:.19em;text-transform:uppercase;color:var(--dim)}
+#resRow .res b{font-family:var(--f-mono);font-size:14px;font-weight:500;
+  font-variant-numeric:tabular-nums;color:var(--bone);letter-spacing:-.01em}
+/* the hairline is the cap: full means what you carry home is wasted */
+#resRow .res .rfill{position:absolute;left:8px;right:8px;bottom:2px;height:2.5px;
+  border-radius:2px;background:rgba(0,0,0,.4);pointer-events:none;
+  box-shadow:inset 0 0 0 1px rgba(228,224,214,.05)}
+#resRow .res .rfill i{display:block;height:100%;border-radius:2px;
+  transform:scaleX(0);transform-origin:left;
+  background:var(--moss);transition:transform .3s,background .3s}
+#resRow .res.nocap .rfill{display:none}
+#resRow .res.full .rfill i{background:var(--amber)}
+#resRow .res.full b{color:var(--amber)}
+#resRow .res.bad b{color:var(--rust)}
+#resRow .res.bad .rfill i{background:var(--rust)}
+/* a counter that just went up */
+#resRow .res.pop{animation:resPop .5s cubic-bezier(.2,.9,.3,1)}
+#resRow .res.pop .rmk{animation:markPop .5s cubic-bezier(.2,.9,.3,1)}
+@keyframes resPop{
+  0%{background:rgba(227,166,63,.34)}
+  100%{background:rgba(227,166,63,0)}
+}
+@keyframes markPop{
+  0%{transform:scale(1)}
+  32%{transform:scale(1.26)}
+  100%{transform:scale(1)}
+}
+@media (prefers-reduced-motion:reduce){
+  #resRow .res.pop,#resRow .res.pop .rmk{animation:none}
+}
+#resRow .more{position:relative;padding:5px 12px;border-radius:8px;color:var(--dim);
+  font-size:15px;line-height:1;pointer-events:auto;align-self:stretch;
+  display:grid;place-items:center;transition:color .13s,background .13s}
+#resRow .more:hover{color:var(--bone);background:rgba(228,224,214,.07)}
+
+/* ============================ objectives ================================= *
+   Two or three cards under the portrait saying what the compound wants next.
+   They are the only thing on screen that tells you what to do, so they earn
+   the corner; anything longer belongs in the Tasks sheet.
+   ========================================================================= */
+#quests{position:absolute;z-index:5;
+  top:calc(var(--sa-t) + var(--hud-h) + 12px);left:calc(var(--sa-l) + 12px);
+  display:flex;flex-direction:column;gap:4px;pointer-events:auto;
+  width:var(--col)}
+.qcard{position:relative;display:flex;align-items:center;gap:8px;padding:6px 9px;
+  border-radius:9px;text-align:left;overflow:hidden;
+  background:linear-gradient(180deg,rgba(18,24,30,.88),rgba(7,10,14,.9));
+  border:1px solid var(--line);
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  box-shadow:0 5px 18px rgba(0,0,0,.45)}
+.qcard:hover{border-color:rgba(228,224,214,.28)}
+.qcard .qi{width:22px;height:22px;flex:none;border-radius:7px;display:grid;place-items:center;
+  background:rgba(227,166,63,.12);color:var(--amber)}
+.qcard .qi svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round}
+.qcard .qt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.qcard .qt b{font-family:var(--f-disp);font-size:11.5px;font-weight:600;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--bone);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.qcard .qbar{height:3px;border-radius:2px;background:rgba(0,0,0,.55);overflow:hidden}
+.qcard .qbar i{display:block;height:100%;background:var(--amber);transform-origin:left;
+  border-radius:3px;transition:transform .3s}
+.qcard s{text-decoration:none;font-family:var(--f-mono);font-size:9.5px;color:var(--smoke);
+  font-variant-numeric:tabular-nums;flex:none}
+.qcard.done{border-color:rgba(127,164,92,.5)}
+.qcard.done .qi{background:rgba(127,164,92,.16);color:var(--moss)}
+.qcard.done .qbar i{background:var(--moss)}
+
+@media (max-width:1060px){
+  #wcPhase{display:none}
+  #sv{max-width:252px}
+}
+@media (max-width:900px){
+  :root{--hud-h:128px}
+  #hud{grid-template-columns:minmax(0,1fr) auto;row-gap:7px}
+  #worldChip{grid-column:2;grid-row:1;justify-self:end}
+  .rcol{grid-column:1 / -1;grid-row:2;justify-content:flex-end}
+  /* the name goes before the figure does */
+  #resRow .res{padding:5px 9px 6px;gap:6px}
+  #resRow .res .rtx s{display:none}
+  #resRow .res b{font-size:13px}
+}
+@media (max-width:700px){
+  #wcZone{display:none}
+  #resRow .res .rmk{width:20px;height:20px;border-radius:6px}
+}
+@media (max-width:560px){
+  :root{--hud-h:124px}
+  #sv{max-width:none;padding:6px 11px 6px 6px;gap:8px}
+  .svmark{width:42px;height:42px}
+  .svmark b{min-width:18px;height:18px;font-size:11.5px}
+  #threat{display:none}
+  #worldChip{padding:6px 11px;gap:7px}
+  #wcDay{font-size:13.5px}
+  #wcTime{font-size:12px}
+  #wcPhase{display:none}
+  #resRow{padding:3px}
+  #resRow .res{padding:4px 8px 5px}
+  #resRow .res b{font-size:12.5px}
+}
+
+/* ============================ mode chip ================================== */
+/* What is in your hands sits with the hotbar, not with the world clock -
+   and it keeps clear of the toast column at the top of the screen. */
+#modeChip{position:absolute;left:50%;transform:translateX(-50%);
+  bottom:calc(var(--sa-b) + 18px);z-index:8;
+  display:none;align-items:center;gap:10px;
+  padding:7px 9px 7px 15px;border-radius:12px;border:1px solid rgba(210,86,42,.4)}
+#modeChip.on{display:flex}
+#modeText{font-family:var(--f-disp);font-size:12.5px;letter-spacing:.17em;
+  text-transform:uppercase;color:var(--amber)}
+/* Touch has no R key, so the turn lives on the chip that says what is on
+   the cursor - which is also where a keyboard player looks to find it. */
+#modeRot{display:flex;align-items:center;gap:5px;padding:4px 9px;
+  border:1px solid rgba(227,166,63,.42);border-radius:7px;color:var(--amber)}
+#modeRot svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round}
+#modeRot b{font-family:var(--f-mono);font-size:10px;font-weight:500;opacity:.75}
+#modeRot:hover{background:rgba(227,166,63,.14)}
+#modeRot:active{transform:translateY(1px)}
+#modeRot.gone{display:none}
+#modeCancel{padding:4px 10px;border:1px solid var(--line);border-radius:7px;
+  font-family:var(--f-mono);font-size:10.5px;color:var(--smoke)}
+#modeCancel:hover{color:var(--bone);border-color:var(--bone)}
+
+/* ============================ side controls ============================== */
+#recenter{position:absolute;right:calc(var(--sa-r) + var(--rail-out));
+  bottom:calc(var(--sa-b) + 112px);z-index:6;
+  display:none;align-items:center;gap:7px;padding:8px 13px;border-radius:9px;
+  background:rgba(10,14,18,.9);border:1px solid var(--line);
+  font-family:var(--f-disp);font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--smoke)}
+#recenter.on{display:flex}
+#recenter:hover{color:var(--bone);border-color:var(--bone)}
+
+/* Two thumb pads, only where there is no keyboard: left walks, right aims
+   and fires. They write the same axis the keys do. */
+.pad{position:absolute;z-index:6;width:104px;height:104px;border-radius:50%;
+  display:none;touch-action:none;place-items:center;
+  background:radial-gradient(circle at 50% 50%,rgba(16,22,28,.75),rgba(8,11,14,.6));
+  border:1px solid var(--line)}
+.pad i{width:40px;height:40px;border-radius:50%;background:rgba(228,224,214,.14);
+  border:1px solid var(--line);display:block;transition:transform .05s linear}
+/* ---- abilities ----
+
+   Two things you can do that are not pulling a trigger, so they get
+   their own controls rather than hiding on a keyboard. They are on
+   screen with a mouse too, because the button IS the cooldown readout.
+
+   An earlier pass made them discs with a ring draining round the rim.
+   Two problems with that, both fatal. The ring was the loudest thing on
+   the screen and read as a loading spinner rather than a control, and a
+   number counting down in the middle of the face covered the one thing
+   that says which button you are looking at.
+
+   So: a cell that charges. The tile fills from the bottom as the
+   cooldown burns off and sits full and amber when it is ready, which is
+   the same language as every other gauge here - and it never covers the
+   icon, because the icon is what you are aiming at with your thumb.
+   Rounded tiles rather than circles, in one slab, because that is what
+   the rest of this HUD is made of. */
+#acts{position:absolute;z-index:6;
+  right:calc(var(--sa-r) + var(--rail-out));bottom:calc(var(--sa-b) + 186px);
+  display:flex;flex-direction:column;gap:4px;padding:4px;border-radius:15px}
+
+.act{position:relative;width:64px;height:64px;border-radius:11px;
+  padding:0;border:1px solid var(--line);overflow:hidden;pointer-events:auto;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  background:linear-gradient(180deg,rgba(24,31,38,.8),rgba(9,13,17,.86));
+  box-shadow:inset 0 1px 0 rgba(228,224,214,.07);
+  color:var(--smoke);
+  transition:border-color .16s,box-shadow .16s,transform .08s}
+
+/* the charge, rising from the bottom of the cell */
+.act .afill{position:absolute;left:0;right:0;bottom:0;height:var(--fill,0%);
+  pointer-events:none;
+  background:linear-gradient(180deg,rgba(227,166,63,.26),rgba(227,166,63,.10));
+  border-top:1px solid rgba(227,166,63,.5);
+  transition:height .09s linear}
+
+.act .aico{position:relative;display:grid;place-items:center;
+  width:34px;height:34px;margin-top:2px}
+.act .aico svg{width:31px;height:31px;fill:currentColor;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.75));
+  transition:color .16s,transform .12s}
+.act b{position:relative;font-family:var(--f-disp);font-size:8.5px;font-weight:700;
+  letter-spacing:.2em;color:var(--dim);transition:color .16s}
+
+/* the key, notched into the top corner rather than floating beside it */
+.act .akey{position:absolute;top:0;left:0;font-style:normal;
+  min-width:15px;height:14px;padding:0 4px;
+  border-radius:11px 0 8px 0;
+  display:grid;place-items:center;
+  font-family:var(--f-mono);font-size:9px;line-height:1;
+  color:var(--smoke);background:rgba(228,224,214,.13)}
+
+/* the seconds, in the corner where they cover nothing */
+.act .acd{position:absolute;top:1px;right:4px;display:none;
+  text-decoration:none;font-family:var(--f-mono);font-size:12.5px;
+  color:#F2EEE2;text-shadow:0 1px 3px rgba(0,0,0,.9);
+  font-variant-numeric:tabular-nums}
+
+/* ---- states ---- */
+.act.ready{border-color:rgba(227,166,63,.5);
+  box-shadow:inset 0 1px 0 rgba(228,224,214,.1),0 0 12px rgba(227,166,63,.16)}
+.act.ready .aico svg{color:var(--amber)}
+.act.ready b{color:var(--bone)}
+
+.act.cooling .afill{
+  background:linear-gradient(180deg,rgba(150,166,182,.18),rgba(150,166,182,.07));
+  border-top-color:rgba(168,182,196,.42)}
+/* Dimmed, but still legible. A cooling ability you cannot identify is
+   no better than one you cannot see at all - the point of not covering
+   the icon was that the icon stays readable. */
+.act.cooling .aico svg{color:rgba(228,224,214,.46)}
+.act.cooling b{color:rgba(228,224,214,.3)}
+.act.cooling .acd{display:block}
+.act.cooling .akey{opacity:.3}
+
+/* the moment it comes back: one sweep of light across the face */
+.act.charge::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(105deg,rgba(255,236,190,0) 30%,
+             rgba(255,236,190,.55) 50%,rgba(255,236,190,0) 70%);
+  transform:translateX(-100%);
+  animation:actSweep .42s cubic-bezier(.3,0,.2,1)}
+@keyframes actSweep{to{transform:translateX(100%)}}
+
+/* armed: the throw is waiting on you to let go */
+.act.armed{border-color:var(--rust);
+  box-shadow:inset 0 1px 0 rgba(228,224,214,.1),0 0 0 1px rgba(210,86,42,.4),
+             0 0 16px rgba(210,86,42,.34)}
+.act.armed .afill{
+  background:linear-gradient(180deg,rgba(210,86,42,.32),rgba(210,86,42,.12));
+  border-top-color:rgba(232,120,74,.7)}
+.act.armed .aico svg{color:#FFC49E;animation:actArm .66s ease-in-out infinite}
+.act.armed b{color:#F0A882}
+@keyframes actArm{50%{transform:translateY(-2px) scale(1.06)}}
+
+.act:active{transform:translateY(1px);
+  box-shadow:inset 0 2px 6px rgba(0,0,0,.6)}
+
+body.basemode #acts,body.indoors #acts{display:none}
+@media (max-width:900px){
+  #acts{bottom:calc(var(--sa-b) + 214px)}
+  .act{width:72px;height:72px}
+  .act .aico{width:38px;height:38px}
+  .act .aico svg{width:35px;height:35px}
+  .act .acd{font-size:14px}
+}
+@media (max-width:560px){
+  .act{width:66px;height:66px}
+  .act .aico svg{width:31px;height:31px}
+}
+@media (prefers-reduced-motion:reduce){
+  .act.charge::after,.act.armed .aico svg{animation:none}
+  .act .afill{transition:none}
+}
+
+#movepad{left:calc(var(--sa-l) + 18px);bottom:calc(var(--sa-b) + var(--mm) + 30px)}
+#movepad.on{border-color:var(--bone);
+  background:radial-gradient(circle at 50% 50%,rgba(34,40,46,.7),rgba(8,11,14,.7))}
+#movepad.on i{background:rgba(228,224,214,.34);border-color:var(--bone)}
+#aimpad{right:calc(var(--sa-r) + var(--rail-out));
+  bottom:calc(var(--sa-b) + 116px)}
+#aimpad.on{border-color:var(--rust);
+  background:radial-gradient(circle at 50% 50%,rgba(60,24,12,.6),rgba(8,11,14,.7))}
+#aimpad.on i{background:rgba(210,86,42,.4);border-color:var(--rust)}
+@media (pointer:coarse){.pad{display:grid}}
+
+
+/* ============================ base mode ================================== *
+   Explore keeps the thin HUD, because there the world is the game. Base is a
+   planning screen, so it is the one place a dense panel earns its room: a
+   tool rail down the left and the catalogue along the bottom.
+   ========================================================================= */
+/* Indoors there is no compound to look at and no map to read: the room is
+   the whole of it. */
+body.indoors #mmwrap,
+body.indoors #quests,
+body.indoors #recenter,
+body.indoors #worldChip{display:none}
+
+body.basemode #aimpad,
+body.basemode #movepad,
+body.basemode #quests,
+body.basemode #recenter{display:none}
+body.basemode #scene{cursor:grab}
+
+#baseui{position:absolute;inset:0;z-index:7;pointer-events:none}
+#baseui.gone{display:none}
+#baseui > *{pointer-events:auto}
+
+#toolrail{position:absolute;left:calc(var(--sa-l) + 12px);
+  top:calc(var(--sa-t) + 50%);transform:translateY(-58%);
+  display:flex;flex-direction:column;gap:6px}
+.tool-btn{width:66px;min-height:62px;border-radius:12px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:5px;
+  background:linear-gradient(180deg,rgba(12,16,20,.9),rgba(6,9,12,.92));
+  border:1px solid var(--line);color:var(--smoke);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  box-shadow:0 6px 20px rgba(0,0,0,.5);transition:border-color .15s,color .15s}
+.tool-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+.tool-btn span{font-family:var(--f-disp);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;font-weight:600}
+.tool-btn:hover{color:var(--bone);border-color:rgba(228,224,214,.3)}
+.tool-btn.on{color:var(--amber);border-color:rgba(227,166,63,.55);
+  background:linear-gradient(180deg,rgba(40,30,12,.92),rgba(12,10,6,.94))}
+
+/* A strip along the bottom, and as little of one as it can be.
+
+   It used to be a 300px panel with 112px cards and a 250px detail column
+   beside them - half the screen, to pick one of forty things. The whole
+   point of building is watching the compound, so the dock is now one bar
+   of tabs, one row of small cards, and a single line saying what the
+   selected blueprint does. The compound keeps the rest. */
+#basedock{position:absolute;left:0;right:0;bottom:0;
+  padding:0 calc(var(--sa-r) + var(--rail-w) + 22px) calc(var(--sa-b) + 10px)
+          calc(var(--sa-l) + 88px);
+  display:flex;flex-direction:column}
+.bdhead{display:flex;align-items:center;gap:8px;
+  padding:5px 9px;border:1px solid var(--line);border-bottom:0;border-radius:12px 12px 0 0;
+  background:linear-gradient(180deg,rgba(14,18,22,.94),rgba(10,13,17,.94));
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.bdtabs{display:flex;gap:2px;overflow-x:auto;overscroll-behavior:contain;
+  scrollbar-width:none;flex:1;min-width:0}
+.bdtabs::-webkit-scrollbar{display:none}
+.bdtab{flex:0 0 auto;display:flex;align-items:center;gap:5px;
+  padding:4px 9px;border:1px solid transparent;border-radius:7px;
+  color:var(--smoke);font-family:var(--f-disp);font-size:10px;letter-spacing:.11em;
+  text-transform:uppercase;font-weight:600;white-space:nowrap;min-height:26px;
+  transition:color .13s,background .13s,border-color .13s}
+.bdtab svg{width:13px;height:13px;fill:currentColor;flex:none;opacity:.85}
+.bdtab:hover{color:var(--bone);background:rgba(228,224,214,.05)}
+.bdtab.on{background:rgba(227,166,63,.13);color:var(--amber);
+  border-color:rgba(227,166,63,.45)}
+.bdtab.on svg{opacity:1}
+.bdsum{display:flex;gap:12px;font-family:var(--f-mono);font-size:11px;color:var(--dim);
+  white-space:nowrap}
+.bdsum b{color:var(--bone);font-weight:500}
+.bdsum s{text-decoration:none;color:var(--rust)}
+#bdExit{padding:6px 14px;border:1px solid var(--line);border-radius:9px;
+  font-family:var(--f-disp);font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--bone);min-height:32px}
+#bdExit:hover{border-color:var(--bone);background:rgba(228,224,214,.06)}
+
+.bdbody{display:flex;flex:none;
+  border:1px solid var(--line);border-bottom:0;
+  background:linear-gradient(180deg,rgba(12,16,20,.94),rgba(8,11,14,.96));
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  box-shadow:0 -8px 30px rgba(0,0,0,.5)}
+
+/* One line under the strip: what the selected blueprint is and does. It
+   replaces a 250px column that repeated the card you were already on. */
+.bdfoot{display:flex;align-items:center;gap:9px;min-height:30px;
+  padding:5px 11px;border:1px solid var(--line);border-radius:0 0 12px 12px;
+  background:linear-gradient(180deg,rgba(9,12,15,.95),rgba(7,9,12,.97));
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  font-size:11.5px;color:var(--smoke);white-space:nowrap;overflow:hidden}
+.bdfoot b{font-family:var(--f-disp);font-weight:700;font-size:12px;letter-spacing:.05em;
+  color:var(--bone);flex:none}
+.bdfoot i{font-style:normal;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bdfoot .fcost{display:flex;gap:8px;font-family:var(--f-mono);font-size:10.5px;flex:none}
+.bdfoot .fcost s{text-decoration:none;display:flex;align-items:center;gap:3px;color:var(--smoke)}
+.bdfoot .fcost s.no{color:var(--rust)}
+.bdfoot .fcost svg.gi{width:11px;height:11px}
+.bdfoot .go{color:var(--moss)}
+.bdfoot .stop{color:var(--rust)}
+.bdlist{flex:1;min-width:0;display:flex;align-items:flex-start;gap:5px;
+  overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;
+  padding:8px 10px;scrollbar-width:thin}
+.bdlist::-webkit-scrollbar{height:9px}
+.bdlist::-webkit-scrollbar-track{background:transparent}
+.bdlist::-webkit-scrollbar-thumb{background:rgba(228,224,214,.16);
+  background-clip:content-box;border:3px solid transparent;border-radius:6px}
+.bdlist::-webkit-scrollbar-thumb:hover{background:rgba(228,224,214,.3);
+  background-clip:content-box;border:3px solid transparent}
+.bcard{position:relative;flex:0 0 auto;width:86px;height:86px;
+  border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  background:radial-gradient(86% 70% at 50% 34%,rgba(228,224,214,.075),rgba(228,224,214,0) 76%),
+             linear-gradient(180deg,rgba(24,30,36,.5),rgba(8,11,14,.5));
+  display:flex;flex-direction:column;align-items:stretch;
+  transition:border-color .15s,background .15s,transform .12s}
+.bcard{background-image:linear-gradient(180deg,rgba(228,224,214,.045),rgba(228,224,214,0) 44%)}
+.bcard:hover{background-color:rgba(228,224,214,.07);border-color:rgba(228,224,214,.3);
+  transform:translateY(-1px)}
+.bcard:active{transform:translateY(0)}
+.bcard.on{border-color:var(--amber);background-color:rgba(227,166,63,.11);
+  box-shadow:inset 0 0 0 1px rgba(227,166,63,.16)}
+.bcard.no{opacity:.5}
+.bcard.lock{opacity:.4}
+/* the piece sits in the middle of its shelf, not on the floor of it */
+.bcard .ba{position:absolute;inset:0;display:grid;place-items:center}
+.bcard .ba::after{content:"";position:absolute;left:20%;right:20%;bottom:37%;height:7px;
+  border-radius:50%;background:radial-gradient(50% 50% at 50% 50%,rgba(0,0,0,.45),rgba(0,0,0,0) 72%)}
+.bcard .ba canvas{display:block}
+/* The caption floats on the render rather than sitting under it, so the
+   picture gets the whole tile and the words still read. The scrim has to
+   be short and soft: tall and opaque, it swallowed the building whole
+   and every card in the strip came out looking blank. */
+.bcard .bmeta{position:relative;margin-top:auto;z-index:1;
+  display:flex;flex-direction:column;align-items:center;gap:0;
+  padding:5px 4px 4px;
+  background:linear-gradient(0deg,rgba(6,9,12,.93) 40%,rgba(6,9,12,.5) 76%,rgba(6,9,12,0))}
+.bcard .bn{flex:none;font-family:var(--f-disp);font-size:10.5px;font-weight:600;
+  line-height:1.3;letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.8);
+  color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:78px}
+/* The description moved to the line under the strip. A card this size
+   has room for a picture, a name and a price, and nothing else. */
+.bcard .bd{display:none}
+.bcard .bc{flex:none;display:flex;gap:7px;justify-content:center;line-height:1.35;
+  max-width:80px;overflow:hidden;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+.bcard .bc s{text-decoration:none;font-family:var(--f-mono);font-size:10.5px;color:var(--smoke);
+  display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+.bcard .bc s svg.gi{width:12px;height:12px}
+.bcard .bc s.no{color:var(--rust)}
+.bcard .bl{flex:none;line-height:1.5;font-family:var(--f-disp);font-size:8px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--dim)}
+
+/* ---- the structure panel ----
+
+   A building is where every resource you own ends up, and until now
+   deciding whether to put another two hundred scrap into one was done
+   from a caption. This is the screen for that decision and it is sized
+   like one: the thing itself drawn large, what it does now, what it
+   would do next, exactly what that costs, and the three other things you
+   might do with it instead.
+
+   It is deliberately NOT the console. The console's section rail is for
+   moving between parts of the game; this is one object, opened by
+   clicking that object, and closed by finishing with it. It floats over
+   the compound because the compound is the context for the decision. */
+/* Anchored to the bottom, capped by what is actually above it. Capped
+   at a flat figure instead, a tall structure's panel grew up through the
+   top of the screen and took its own header with it. */
+#bpop{position:absolute;z-index:16;width:min(430px,calc(100vw - 32px));
+  max-height:calc(100dvh - var(--sa-t) - var(--sa-b) - 92px);
+  left:50%;transform:translateX(-50%);bottom:calc(var(--sa-b) + 22px);
+  border:1px solid var(--line);border-radius:14px;
+  background:linear-gradient(180deg,rgba(17,22,28,.985),rgba(7,10,13,.99));
+  -webkit-backdrop-filter:blur(18px) saturate(.9);backdrop-filter:blur(18px) saturate(.9);
+  box-shadow:0 26px 64px rgba(0,0,0,.68),inset 0 1px 0 rgba(228,224,214,.07);
+  display:flex;flex-direction:column;overflow:hidden}
+#bpop.gone{display:none}
+
+/* header: the render, the name, the level track */
+#bpop .ph{display:flex;align-items:stretch;gap:12px;flex:none;
+  padding:12px 12px 11px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(228,224,214,.055),rgba(228,224,214,0))}
+#bpop .pshot{flex:none;width:118px;height:94px;border-radius:10px;
+  border:1px solid var(--line-soft);overflow:hidden;
+  display:grid;place-items:center;position:relative;
+  background:radial-gradient(76% 62% at 50% 34%,rgba(228,224,214,.1),rgba(0,0,0,.34) 78%)}
+#bpop .pshot::after{content:"";position:absolute;left:16%;right:16%;bottom:12%;height:8px;
+  border-radius:50%;background:radial-gradient(closest-side,rgba(0,0,0,.5),rgba(0,0,0,0))}
+#bpop .pt{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;
+  justify-content:center}
+#bpop .pt .pcat{font-family:var(--f-disp);font-size:9.5px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--dim)}
+#bpop .pt h4{font-family:var(--f-disp);font-weight:700;font-size:19px;letter-spacing:.045em;
+  line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#bpop .pt .plv{display:flex;align-items:center;gap:7px;
+  font-family:var(--f-mono);font-size:11px;color:var(--amber);letter-spacing:.06em}
+#bpop .pt .plv s{text-decoration:none;color:var(--dim)}
+#bpop .pips{display:flex;gap:2px;flex:1}
+#bpop .pips i{flex:1;height:4px;border-radius:1px;background:rgba(228,224,214,.13)}
+#bpop .pips i.on{background:var(--amber)}
+#bpop .px{position:absolute;right:9px;top:9px;width:28px;height:28px;
+  border:1px solid var(--line);border-radius:8px;display:grid;place-items:center;
+  color:var(--smoke);font-size:15px;line-height:1;background:rgba(6,9,12,.6);z-index:2}
+#bpop .px:hover{color:var(--bone);border-color:var(--bone);background:rgba(228,224,214,.08)}
+
+#bpop .pbody{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  padding:11px 12px 12px;display:flex;flex-direction:column;gap:10px}
+#bpop .pbody::-webkit-scrollbar{width:8px}
+#bpop .pbody::-webkit-scrollbar-thumb{background:rgba(228,224,214,.16);
+  background-clip:content-box;border:2px solid transparent;border-radius:6px}
+
+#bpop .pblurb{font-size:12px;line-height:1.45;color:var(--smoke)}
+#bpop .pbar{height:5px;border-radius:3px;background:rgba(0,0,0,.6);overflow:hidden}
+#bpop .pbar i{display:block;height:100%;background:var(--moss);transform-origin:left;
+  transition:transform .18s}
+#bpop .slab{font-family:var(--f-disp);font-size:9.5px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--dim);display:flex;align-items:center;gap:8px}
+#bpop .slab::after{content:"";flex:1;height:1px;background:var(--line)}
+
+/* the stat table - what it does now against what it would do */
+#bpop .stats{display:flex;flex-direction:column;gap:1px;
+  border:1px solid var(--line);border-radius:9px;overflow:hidden}
+#bpop .strow{display:grid;grid-template-columns:minmax(0,1fr) auto 12px auto;
+  align-items:baseline;gap:8px;padding:6px 10px;
+  background:rgba(228,224,214,.022);font-size:11.5px;color:var(--smoke)}
+#bpop .strow:nth-child(even){background:rgba(228,224,214,.045)}
+#bpop .strow b,#bpop .strow u{font-family:var(--f-mono);font-size:11.5px;
+  font-variant-numeric:tabular-nums;text-decoration:none}
+#bpop .strow b{color:var(--bone)}
+#bpop .strow em{font-style:normal;color:var(--dim);text-align:center}
+#bpop .strow u{color:var(--moss)}
+#bpop .strow.flat u{color:var(--smoke)}
+
+/* the cost of the next level */
+#bpop .costs{display:flex;flex-wrap:wrap;gap:7px}
+#bpop .costs s{text-decoration:none;display:flex;align-items:center;gap:5px;
+  padding:5px 9px;border:1px solid var(--line);border-radius:8px;
+  font-family:var(--f-mono);font-size:11.5px;color:var(--bone);
+  background:rgba(228,224,214,.03);font-variant-numeric:tabular-nums}
+#bpop .costs s.no{border-color:rgba(176,74,54,.5);color:var(--rust);
+  background:rgba(176,74,54,.08)}
+#bpop .costs s i{font-style:normal;color:var(--dim)}
+#bpop .costs svg.gi{width:13px;height:13px}
+
+/* the action it exists for, then the three lesser ones */
+#bpop .pmain{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  width:100%;min-height:46px;padding:8px 14px;border-radius:10px;
+  border:1px solid rgba(138,170,110,.55);color:#DCE8CE;
+  background:linear-gradient(180deg,rgba(138,170,110,.2),rgba(138,170,110,.08));
+  font-family:var(--f-disp);font-size:13px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;transition:background .14s,border-color .14s,transform .1s}
+#bpop .pmain:hover{background:linear-gradient(180deg,rgba(138,170,110,.3),rgba(138,170,110,.14))}
+#bpop .pmain:active{transform:translateY(1px)}
+#bpop .pmain.off{opacity:.45;border-color:var(--line);color:var(--smoke);
+  background:rgba(228,224,214,.03)}
+#bpop .pmain.done{border-color:rgba(227,166,63,.5);color:var(--amber);
+  background:rgba(227,166,63,.1)}
+#bpop .pmain em{font-style:normal}
+#bpop .pmain span{font-family:var(--f-mono);font-size:11px;font-weight:400;
+  letter-spacing:0;text-transform:none;color:var(--smoke)}
+#bpop .prow3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+#bpop .pb{display:flex;flex-direction:column;align-items:center;gap:3px;
+  min-height:44px;padding:6px 4px;border:1px solid var(--line);border-radius:9px;
+  font-family:var(--f-disp);font-size:9.5px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--smoke);
+  transition:background .13s,border-color .13s,color .13s}
+#bpop .pb svg{width:15px;height:15px;fill:currentColor;opacity:.85}
+#bpop .pb:hover{background:rgba(228,224,214,.07);border-color:rgba(228,224,214,.34);
+  color:var(--bone)}
+#bpop .pb.danger:hover{border-color:rgba(176,74,54,.5);color:var(--rust);
+  background:rgba(176,74,54,.1)}
+#bpop .pb.off{opacity:.4}
+#bpop .pnote{font-size:11.5px;color:var(--dim);text-align:center;padding:2px 0}
+/* The things you came here to press never scroll.
+
+   Everything above them can: the stat table on a turret is eight rows
+   and on a wall it is one, so the panel has to give somewhere. It gives
+   in the middle. Upgrade and the three lesser actions stay put, because
+   a button you have to go looking for is a button that is not there. */
+#bpop .pfoot{flex:none;display:flex;flex-direction:column;gap:6px;
+  padding:10px 12px 12px;border-top:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(228,224,214,.03),rgba(228,224,214,0))}
+#bpop .phold{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--smoke)}
+#bpop .phold s{text-decoration:none;display:flex;align-items:center;gap:4px;
+  font-family:var(--f-mono);color:var(--bone)}
+#bpop .phold svg.gi{width:12px;height:12px}
+
+/* in build mode it sits clear of the dock, and loses that much height */
+body.basemode #bpop{bottom:200px;
+  max-height:calc(100dvh - var(--sa-t) - 272px)}
+
+@media (max-width:900px){
+  #toolrail{left:calc(var(--sa-l) + 8px)}
+  .tool-btn{width:56px;min-height:50px;gap:3px}
+  .tool-btn svg{width:17px;height:17px}
+  .tool-btn span{font-size:9px;letter-spacing:.1em}
+  #basedock{padding-left:calc(var(--sa-l) + 74px)}
+  .bdsum{display:none}
+}
+/* The description only leaves the line when the line genuinely cannot
+   hold it. A tablet has the room, and this is now the only place the
+   description lives. */
+@media (max-width:560px){
+  .bdfoot i{display:none}
+  .bdtab span{display:none}
+  .bdtab{padding:4px 8px}
+  .bdtab.on span{display:inline}
+}
+
+
+/* The dock must never eat the compound it exists to edit. On a short
+   window it loses the preview art and shrinks to a name-and-cost list. */
+@media (max-height:620px){
+  .bcard{width:76px;height:76px}
+  .bdlist{padding:6px 9px}
+  .tool-btn{width:54px;min-height:46px;gap:2px}
+  body.basemode #bpop{bottom:178px}
+}
+@media (max-height:480px){
+  .bcard{width:66px;height:66px}
+  .bcard .bmeta{padding-top:6px}
+  .bdfoot{display:none}
+  .tool-btn{width:50px;min-height:42px}
+  .tool-btn span{display:none}
+  body.basemode #bpop{bottom:150px}
+  #bpop{max-height:calc(100vh - 96px)}
+}
+
+/* ============================ command rail =============================== *
+   Destinations live in a column down the right edge rather than a bar across
+   the bottom. A bar steals a full strip of the world at its widest point; a
+   rail takes a thumb's width of the side, and on a phone the right edge is
+   where the thumb already is.
+   ========================================================================= */
+#srail{position:absolute;right:calc(var(--sa-r) + 10px);top:50%;
+  transform:translateY(-50%);z-index:9;
+  display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+/* One slab, divided, rather than six floating tiles: the rail is a piece
+   of equipment bolted to the edge of the screen and it should look like
+   one. The buttons keep their own hit areas and the seams between them
+   are hairlines, so it still reads as six things. */
+#srail{padding:5px;border-radius:15px;gap:3px;
+  background:linear-gradient(180deg,rgba(16,21,27,.9),rgba(6,9,13,.93));
+  border:1px solid var(--line);
+  -webkit-backdrop-filter:blur(14px) saturate(.85);backdrop-filter:blur(14px) saturate(.85);
+  box-shadow:0 10px 30px rgba(0,0,0,.6),inset 0 1px 0 rgba(228,224,214,.06)}
+.rbtn{position:relative;width:var(--rail-w);height:var(--rail-w);border-radius:11px;
+  display:grid;place-items:center;gap:0;background:transparent;border:0;
+  color:var(--smoke);transition:color .15s,background .15s,transform .1s}
+/* filled facets in currentColor, so one icon reads at 25px and still
+   turns amber with its button */
+.rbtn svg{width:25px;height:25px;fill:currentColor;stroke:none;
+  transition:transform .12s}
+.rbtn:hover{color:var(--bone);background:rgba(228,224,214,.07)}
+.rbtn:hover svg{transform:scale(1.06)}
+.rbtn:active{transform:scale(.93)}
+.rbtn.on{color:var(--amber);
+  background:linear-gradient(180deg,rgba(52,38,14,.92),rgba(20,15,7,.94));
+  box-shadow:inset 0 0 0 1px rgba(227,166,63,.3)}
+/* the marker tells you where you are without relying on the tint alone */
+.rbtn.on::after{content:"";position:absolute;left:-5px;top:12px;bottom:12px;width:2px;
+  border-radius:2px;background:var(--amber);box-shadow:0 0 8px rgba(227,166,63,.6)}
+.rbtn i.dot{position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;
+  background:var(--rust);display:none;box-shadow:0 0 0 2px rgba(5,7,10,.8)}
+.rbtn.alert i.dot{display:block}
+/* the name rides out of the button on hover instead of living under it */
+.rbtn u{position:absolute;right:calc(100% + 8px);top:50%;transform:translateY(-50%);
+  text-decoration:none;white-space:nowrap;padding:4px 9px;border-radius:4px;
+  background:rgba(8,11,15,.94);border:1px solid var(--line);color:var(--bone);
+  font-family:var(--f-disp);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  font-weight:600;opacity:0;pointer-events:none;transition:opacity .13s}
+.rbtn:hover u{opacity:1}
+@media (pointer:coarse){.rbtn u{display:none}}
+
+/* ============================ the rack =================================== *
+   One card design for a weapon, used twice: down the left of the world so
+   you can change weapon mid-fight without opening anything, and again as
+   the arsenal column inside the weapon bay.
+
+   The gun is dark gunmetal on a dark panel, so every card lights its own
+   pool for the gun to sit in - without it the art reads as a smudge.
+   ========================================================================= */
+.gcard{position:relative;display:block;width:100%;padding:7px 9px 6px;
+  border:1px solid var(--line);border-radius:5px;text-align:left;
+  background:linear-gradient(180deg,rgba(25,31,38,.92),rgba(10,14,18,.94));
+  transition:border-color .14s,background .14s,box-shadow .14s}
+.gcard:hover{border-color:rgba(228,224,214,.28);
+  background:linear-gradient(180deg,rgba(33,41,49,.95),rgba(14,19,24,.96))}
+.gcard.on{border-color:rgba(227,166,63,.5);
+  background:linear-gradient(180deg,rgba(45,36,18,.8),rgba(14,13,9,.95));
+  box-shadow:0 3px 16px rgba(0,0,0,.42),inset 0 0 0 1px rgba(227,166,63,.1)}
+/* the strip down the edge is what you actually read at a glance */
+.gcard.on::before{content:"";position:absolute;left:-1px;top:8px;bottom:8px;width:2px;
+  border-radius:2px;background:var(--amber);box-shadow:0 0 8px rgba(227,166,63,.55)}
+.gcw{display:block;border-radius:4px;
+  background:radial-gradient(64% 76% at 50% 46%,rgba(228,224,214,.11),rgba(228,224,214,0) 72%)}
+.gcw canvas{display:block;width:100%;height:auto;
+  filter:drop-shadow(0 3px 4px rgba(0,0,0,.5))}
+.gcm{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  margin-top:2px;padding:0 2px}
+.gcm b{font-family:var(--f-disp);font-weight:700;font-size:13.5px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--bone);line-height:1.1;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gcm s{flex:none;text-decoration:none;font-family:var(--f-mono);font-size:10.5px;
+  color:var(--smoke);font-variant-numeric:tabular-nums}
+.gcard.on .gcm s{color:var(--amber)}
+.gcm s.lo{color:var(--rust)}
+.gcm s.rel{color:var(--amber)}
+.gcard.lock .gcw canvas{opacity:.34;filter:grayscale(.7)}
+.gcard.lock .gcm b{color:var(--smoke)}
+.gcard.lock .gcm s{color:var(--dim)}
+.gclk{position:absolute;top:7px;right:8px;display:grid;place-items:center}
+.gclk svg{width:13px;height:13px;fill:var(--dim)}
+.gck{position:absolute;top:6px;left:8px;font-style:normal;font-family:var(--f-mono);
+  font-size:9.5px;color:var(--dim);letter-spacing:.04em}
+.gcard.on .gck{color:rgba(227,166,63,.72)}
+
+/* Down the right, under the top instruments and inboard of the command
+   rail. The left column is already the survivor plate, the objectives and
+   the map, stacked from top to bottom with nothing spare between them. */
+/* Glass, not slab. The rack sits over the world rather than over a
+   panel, so it is the one instrument that can afford to let the world
+   through it - and being lighter and smaller it stops competing with the
+   thing you are actually aiming at.
+
+   It stands on top of the map, in the map's own column: the left edge is
+   already a stack of things you read - who you are, what you owe, where
+   you are - and what is in your hands belongs in that stack rather than
+   floating on its own against the far side of the screen. */
+#grack{position:absolute;left:calc(var(--sa-l) + 12px);z-index:8;
+  width:var(--col);bottom:calc(var(--sa-b) + var(--mm) + 20px);
+  max-height:calc(100dvh - var(--sa-t) - var(--sa-b)
+                  - var(--hud-h) - var(--mm) - 54px);
+  display:flex;flex-direction:column;border-radius:12px;padding:6px 6px 7px;
+  /* a thin dark floor under the white, so what is on the glass keeps its
+     contrast when the glass happens to be over a sunlit field */
+  background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.03)),
+             rgba(11,15,20,.14);
+  border:1px solid rgba(255,255,255,.17);
+  -webkit-backdrop-filter:blur(13px) saturate(1.08);
+  backdrop-filter:blur(13px) saturate(1.08);
+  box-shadow:0 10px 26px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.22)}
+#grack .grl{gap:4px}
+/* the cards are panes in the same glass */
+#grack .gcard{padding:3px 4px;border-radius:7px;
+  border-color:rgba(255,255,255,.11);
+  background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.02))}
+#grack .gcard:hover{border-color:rgba(255,255,255,.34);
+  background:linear-gradient(180deg,rgba(255,255,255,.18),rgba(255,255,255,.07))}
+#grack .gcard.on{border-color:rgba(255,255,255,.82);
+  background:linear-gradient(180deg,rgba(255,255,255,.24),rgba(255,255,255,.10));
+  box-shadow:0 3px 12px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.42)}
+#grack .gcard.on::before{background:#FFF;box-shadow:0 0 9px rgba(255,255,255,.85);
+  top:6px;bottom:6px}
+#grack .gcw{background:radial-gradient(64% 76% at 50% 46%,rgba(255,255,255,.2),
+  rgba(255,255,255,0) 72%)}
+#grack .gcw canvas{filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}
+/* the only text on the rack, in the corner of the one you are holding */
+.gcammo{position:absolute;right:6px;bottom:3px;text-decoration:none;
+  font-family:var(--f-mono);font-size:9px;color:#FFF;letter-spacing:.02em;
+  font-variant-numeric:tabular-nums;pointer-events:none;
+  text-shadow:0 1px 4px rgba(0,0,0,.9),0 0 3px rgba(0,0,0,.7)}
+.gcammo:empty{display:none}
+.gcammo.lo{color:#FFB39A}
+.gcammo.rel{color:#FFD98A}
+/* a thumb needs that corner for the move pad, so on touch the rack
+   stands on top of the pad rather than under it */
+@media (pointer:coarse){
+  #grack{bottom:calc(var(--sa-b) + var(--mm) + 146px);
+    max-height:calc(100dvh - var(--sa-t) - var(--sa-b)
+                    - var(--hud-h) - var(--mm) - 176px)}
+}
+body.basemode #grack{display:none}
+.grl{display:flex;flex-direction:column;gap:6px;overflow-y:auto;scrollbar-width:none}
+.grl::-webkit-scrollbar{display:none}
+
+/* Below this the rack is more screen than the world can spare, so it goes
+   and the survivor plate at the top keeps the round count. */
+@media (max-width:820px),(max-height:560px){
+  #grack{display:none}
+}
+
+/* ============================ minimap ==================================== */
+#mmwrap{position:absolute;left:calc(var(--sa-l) + 12px);bottom:calc(var(--sa-b) + 12px);
+  z-index:8;border-radius:12px;overflow:hidden;width:var(--col);height:var(--col)}
+body.basemode #mmwrap{display:none}
+#mmCv{display:block;width:100%;height:100%;cursor:pointer}
+#mmwrap .mmN{position:absolute;top:5px;left:50%;transform:translateX(-50%);
+  font-family:var(--f-disp);font-size:10px;letter-spacing:.18em;color:var(--smoke);
+  pointer-events:none}
+#mmwrap .mmring{position:absolute;inset:0;pointer-events:none;border-radius:12px;
+  box-shadow:inset 0 0 22px rgba(0,0,0,.65)}
+#mmwrap .mmexp{position:absolute;right:5px;bottom:4px;font-family:var(--f-mono);
+  font-size:9px;color:var(--dim);pointer-events:none}
+
+@media (max-width:640px){
+  :root{--rail-w:48px;--mm:104px;--col:152px}
+  .rbtn svg{width:20px;height:20px}
+}
+@media (max-height:620px){
+  #srail{gap:4px}
+}
+@media (max-height:620px){
+  :root{--col:164px}
+}
+@media (max-height:520px){
+  :root{--mm:92px;--col:148px}
+}
+
+/* ---- the haul, in transit ---- */
+/* The haul, in transit.
+
+   Only transform and opacity move here, so the whole thing runs on the
+   compositor and never asks the page to lay out again - which is what
+   makes a hundred marks crossing a phone screen free rather than a
+   stutter. The transition timings are set from script per mark, so a
+   flight can be faster for a small pickup and longer for a big one. */
+#flyers{position:absolute;inset:0;z-index:9;pointer-events:none;overflow:hidden;
+  contain:layout style}
+.flyer{position:absolute;left:0;top:0;width:0;height:0;will-change:transform}
+.flyi{position:absolute;left:-10px;top:-10px;display:grid;place-items:center;
+  filter:drop-shadow(0 2px 5px rgba(0,0,0,.65));will-change:transform,opacity}
+.flyi svg{display:block}
+
+/* the ring where it came out of the ground */
+.fring{position:absolute;left:0;top:0;width:0;height:0;
+  border-radius:50%;
+  box-shadow:0 0 0 2px var(--rc);
+  opacity:.85;
+  animation:fring .48s cubic-bezier(.2,.7,.4,1) forwards}
+.fring.big{animation-duration:.6s;box-shadow:0 0 0 3px var(--rc)}
+@keyframes fring{
+  from{width:6px;height:4px;margin:-2px 0 0 -3px;opacity:.9}
+  to{width:78px;height:50px;margin:-25px 0 0 -39px;opacity:0}
+}
+/* chips thrown out of it */
+.fbit{position:absolute;left:0;top:0;width:4px;height:4px;border-radius:1px;
+  margin:-2px 0 0 -2px;opacity:0;
+  animation:fbit .46s cubic-bezier(.2,.6,.4,1) forwards}
+@keyframes fbit{
+  0%{transform:translate(0,0) scale(1);opacity:.95}
+  70%{opacity:.8}
+  100%{transform:translate(var(--bx),var(--by)) scale(.3);opacity:0}
+}
+/* the figure, for a haul worth naming */
+.ftag{position:absolute;left:0;top:0;display:flex;align-items:center;gap:5px;
+  transform:translate(-50%,-50%);white-space:nowrap;
+  padding:3px 9px 4px;border-radius:9px;
+  border:1px solid var(--rc);
+  background:linear-gradient(180deg,rgba(12,16,20,.94),rgba(6,9,12,.96));
+  box-shadow:0 6px 18px rgba(0,0,0,.6);
+  animation:ftag .96s cubic-bezier(.2,.8,.3,1) forwards}
+.ftag b{font-family:var(--f-mono);font-size:13px;font-weight:600;color:var(--rc);
+  font-variant-numeric:tabular-nums}
+.ftag svg.gi{width:14px;height:14px}
+@keyframes ftag{
+  0%{transform:translate(-50%,-50%) scale(.5);opacity:0}
+  16%{transform:translate(-50%,-56%) scale(1.12);opacity:1}
+  30%{transform:translate(-50%,-58%) scale(1);opacity:1}
+  72%{opacity:1}
+  100%{transform:translate(-50%,-136%) scale(.94);opacity:0}
+}
+@media (prefers-reduced-motion:reduce){
+  #flyers{display:none}
+}
+}
+
+
+/* ======================================================================
+   The rebuilt HUD, over the top of what came before.
+
+   Written as an overlay rather than a rewrite: everything below this
+   line restates only the pieces that changed shape, and the cascade
+   does the rest. The build dock, the structure panel, the weapon rack
+   and the flying pickups are all still described above and still work.
+   ====================================================================== */
+
+/* ============================ HUD =======================================
+   One surface, one accent, four corners.
+
+   Every panel is the same cold slate card with the same hairline and the
+   same radius, and everything live on any of them is one blue. That is
+   what makes a HUD read as a single instrument rather than a pile of
+   widgets: the blue on the active tab, on the selected weapon, on the
+   fire ring and on the experience bar all mean "this part is yours".
+
+   The corners have jobs. Top left is you - who you are, what you are
+   holding, what you have been asked to do. Top middle is the clock and
+   what it is bringing. Top right is what you own. Bottom left is what
+   you can reach for. Bottom right is what your thumb does. The bar along
+   the bottom is where everything else lives.
+   ========================================================================= */
+#hud{
+  position:absolute;top:0;left:0;right:0;z-index:5;pointer-events:none;
+  padding:calc(var(--sa-t) + 10px) calc(var(--sa-r) + 12px) 0 calc(var(--sa-l) + 12px);
+  display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  gap:10px;align-items:start;
+}
+#hud button,#hud .card,#hud .res{pointer-events:auto}
+
+/* the one card every cluster is cut from */
+.card{
+  position:relative;
+  background:linear-gradient(180deg,rgba(24,36,48,.92),rgba(10,16,23,.94));
+  border:1px solid var(--hud-line);border-radius:10px;
+  -webkit-backdrop-filter:blur(14px) saturate(1.05);backdrop-filter:blur(14px) saturate(1.05);
+  box-shadow:0 6px 20px rgba(0,0,0,.5),inset 0 1px 0 rgba(160,200,232,.09);
+}
+.inst{
+  background:linear-gradient(180deg,rgba(24,36,48,.92),rgba(10,16,23,.94));
+  border:1px solid var(--hud-line);
+  -webkit-backdrop-filter:blur(14px) saturate(1.05);backdrop-filter:blur(14px) saturate(1.05);
+  box-shadow:0 6px 20px rgba(0,0,0,.5),inset 0 1px 0 rgba(160,200,232,.09);
+}
+
+.hcol.l{display:flex;flex-direction:column;gap:6px;min-width:0;width:var(--col);
+  height:auto;max-height:none}
+.hmid{display:flex;flex-direction:column;align-items:center;gap:6px;justify-self:center}
+.rcol{display:flex;justify-content:flex-end;align-items:flex-start;min-width:0}
+
+/* ---- the survivor ---- */
+/* Portrait, level, bars - three columns, no absolute positioning.
+
+   Hanging the level chip off the card's corner and then pushing the bars
+   past it with a margin looked fine until the card had to hold two bars
+   instead of one, at which point the bars were 64px wide and unreadable.
+   A grid cannot collide with itself. */
+#sv{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:8px;
+  align-items:center;padding:7px 9px 7px 7px;text-align:left;width:100%}
+#sv:active{transform:translateY(1px)}
+.svmark{position:relative;width:46px;height:46px;flex:none;border-radius:8px;
+  overflow:hidden;background:linear-gradient(165deg,#25384A,#0F1822);
+  border:1px solid rgba(160,200,232,.28)}
+#svFace{position:absolute;inset:0;width:100%;height:100%;display:block}
+/* the level, in its own chip beside the portrait the way the reference has it */
+.svlvl{position:relative;flex:none;
+  min-width:30px;height:30px;padding:0 5px;border-radius:7px;
+  display:grid;place-items:center;
+  font-family:var(--f-disp);font-weight:700;font-size:17px;line-height:1;
+  color:#EAF4FF;background:linear-gradient(180deg,#2E6FA8,#1B4468);
+  border:1px solid rgba(126,190,240,.5);
+  box-shadow:0 2px 6px rgba(0,0,0,.45);font-variant-numeric:tabular-nums}
+.svcol{display:flex;flex-direction:column;gap:5px;min-width:0}
+
+/* a labelled bar: tag, track, figure - used for health and experience */
+.bar{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:6px}
+.bar s{text-decoration:none;font-family:var(--f-disp);font-size:9px;font-weight:700;
+  letter-spacing:.12em;color:var(--smoke);width:16px}
+.btrack{position:relative;height:11px;border-radius:5px;overflow:hidden;
+  background:rgba(4,8,12,.72);box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
+.btrack>i{position:absolute;inset:0;transform-origin:left;border-radius:5px;
+  transition:transform .16s linear,background .3s}
+.bar.hp .btrack>i{background:linear-gradient(180deg,#7BD877,var(--hp))}
+.bar.xp .btrack>i{background:linear-gradient(180deg,#63BAF2,var(--xp))}
+.bar u{text-decoration:none;font-family:var(--f-mono);font-size:10.5px;color:#D6E4F0;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ---- the weapon in your hands ---- */
+#wpnCard{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;
+  padding:7px 10px 7px 7px;width:100%;text-align:left}
+.wpic{width:62px;height:34px;flex:none;border-radius:7px;display:grid;place-items:center;
+  background:rgba(4,10,16,.5);border:1px solid var(--hud-line2);overflow:hidden}
+#wpnArt{width:58px;height:28px;display:block}
+.wcol{display:flex;flex-direction:column;gap:4px;min-width:0}
+.wname{font-family:var(--f-disp);font-size:13px;font-weight:700;letter-spacing:.04em;
+  color:#E8F1F8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wbar{height:4px;border-radius:3px;background:rgba(4,8,12,.72);overflow:hidden}
+.wbar>i{display:block;height:100%;transform-origin:left;
+  background:linear-gradient(90deg,#4EA8E8,#7ECBFF);transition:transform .14s linear}
+.wammo{display:flex;align-items:center;gap:5px;flex:none}
+.wammo svg{width:13px;height:13px;fill:var(--smoke)}
+.wammo b{font-family:var(--f-mono);font-size:13px;color:#E8F1F8;
+  font-variant-numeric:tabular-nums}
+
+/* ---- the clock, and what it is bringing ---- */
+#worldChip{display:flex;align-items:center;gap:10px;padding:7px 14px;border-radius:9px}
+#wcOrb{width:16px;height:16px;border-radius:50%;flex:none;
+  background:radial-gradient(circle at 34% 30%,#FFE7A8,#E0A33C);
+  box-shadow:0 0 10px rgba(227,166,63,.45)}
+.wctext{display:flex;align-items:baseline;gap:9px;white-space:nowrap}
+#wcDay{font-family:var(--f-disp);font-weight:700;font-size:16px;letter-spacing:.07em;
+  text-transform:uppercase;color:#EAF2F8}
+#wcTime{font-family:var(--f-mono);font-size:14px;color:#C4D4E2;
+  font-variant-numeric:tabular-nums}
+#wcPhase{font-family:var(--f-disp);font-size:10.5px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--dim)}
+#wcZone{font-family:var(--f-disp);font-size:11px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--smoke);padding-left:9px;
+  border-left:1px solid var(--hud-line2)}
+#wcZone.hot{color:#E8734A}
+/* the wave counter, in its own chip under the clock */
+#threat{display:none;align-items:center;gap:8px;padding:5px 13px;border-radius:9px}
+#threat.on{display:flex}
+#threat .dot{width:15px;height:15px;flex:none;
+  -webkit-mask:var(--skull) center/contain no-repeat;mask:var(--skull) center/contain no-repeat;
+  background:#E2553C}
+#threatN{font-family:var(--f-disp);font-size:13px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:#F0D7CE;white-space:nowrap}
+#threat.hot{border-color:rgba(226,85,60,.55);background:linear-gradient(180deg,rgba(60,22,16,.94),rgba(24,10,8,.95))}
+#threat.hot .dot{animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ---- what you own ---- */
+#resRow{display:flex;align-items:stretch;gap:6px;max-width:100%;
+  overflow-x:auto;overscroll-behavior:contain;scrollbar-width:none}
+#resRow::-webkit-scrollbar{display:none}
+/* Each one is a chip with a plus on the end, because "where do I get
+   more of this" is the only question a resource number ever prompts. */
+#resRow .res{position:relative;flex:0 0 auto;display:flex;align-items:center;gap:7px;
+  padding:5px 5px 5px 9px;border-radius:9px;text-align:left;
+  background:linear-gradient(180deg,rgba(24,36,48,.92),rgba(10,16,23,.94));
+  border:1px solid var(--hud-line);
+  box-shadow:0 5px 16px rgba(0,0,0,.45),inset 0 1px 0 rgba(160,200,232,.08);
+  transition:border-color .13s}
+#resRow .res:hover{border-color:rgba(126,190,240,.42)}
+#resRow .res .rmk{width:20px;height:20px;flex:none;display:grid;place-items:center}
+#resRow .res .rmk svg.gi{width:18px;height:18px;opacity:1}
+#resRow .res .rtx{display:flex;align-items:baseline;gap:0;min-width:0}
+#resRow .res .rtx s{display:none}
+#resRow .res b{font-family:var(--f-mono);font-size:14px;font-weight:500;
+  font-variant-numeric:tabular-nums;color:#E8F1F8;letter-spacing:-.01em}
+#resRow .res .rplus{width:22px;height:22px;flex:none;border-radius:6px;
+  display:grid;place-items:center;
+  background:rgba(78,168,232,.16);border:1px solid rgba(126,190,240,.34)}
+#resRow .res .rplus svg{width:11px;height:11px;fill:#8FD0FF}
+#resRow .res:active .rplus{background:rgba(78,168,232,.3)}
+#resRow .res .rfill{position:absolute;left:9px;right:33px;bottom:2px;height:2px;
+  border-radius:2px;background:rgba(0,0,0,.45);pointer-events:none}
+#resRow .res .rfill i{display:block;height:100%;border-radius:2px;
+  transform:scaleX(0);transform-origin:left;background:var(--hp);transition:transform .3s}
+#resRow .res.nocap .rfill{display:none}
+#resRow .res.full .rfill i{background:var(--amber)}
+#resRow .res.bad b{color:#E8734A}
+#resRow .more{padding:5px 11px;color:var(--smoke);font-size:15px;line-height:1;
+  border-radius:9px;
+  background:linear-gradient(180deg,rgba(24,36,48,.92),rgba(10,16,23,.94));
+  border:1px solid var(--hud-line)}
+#resRow .res.pop{animation:resPop .5s cubic-bezier(.2,.9,.3,1)}
+#resRow .res.pop .rmk{animation:markPop .5s cubic-bezier(.2,.9,.3,1)}
+@keyframes resPop{0%{transform:scale(1)}30%{transform:scale(1.11)}100%{transform:scale(1)}}
+@keyframes markPop{0%{transform:scale(1)}30%{transform:scale(1.28) rotate(-7deg)}100%{transform:scale(1)}}
+
+/* ---- what you have been asked to do ----
+   In the column now, not floating under it. The old rule pinned this
+   absolutely below the survivor card, which stacked it straight on top
+   of the weapon card the moment there were three cards instead of two. */
+#quests{position:static;left:auto;top:auto;right:auto;bottom:auto;
+  width:100%;max-width:none;z-index:auto;
+  display:flex;flex-direction:column;gap:6px;pointer-events:auto}
+.quest{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;
+  padding:8px 9px 8px 8px;border-radius:10px;text-align:left;width:100%;
+  background:linear-gradient(180deg,rgba(24,36,48,.92),rgba(10,16,23,.94));
+  border:1px solid var(--hud-line);
+  box-shadow:0 6px 18px rgba(0,0,0,.45),inset 0 1px 0 rgba(160,200,232,.08)}
+.quest .qmk{width:26px;height:26px;flex:none;border-radius:7px;display:grid;place-items:center;
+  background:rgba(227,166,63,.16);border:1px solid rgba(240,188,88,.4)}
+.quest .qmk svg{width:15px;height:15px;fill:var(--amber)}
+.quest .qtx{min-width:0;display:flex;flex-direction:column;gap:2px}
+.quest .qn{font-family:var(--f-disp);font-size:11px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;color:#E8F1F8;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.quest .qd{font-size:10.5px;color:var(--smoke);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.quest .qrow{display:flex;align-items:center;gap:6px}
+.quest .qnum{font-family:var(--f-mono);font-size:9.5px;color:var(--dim)}
+.quest .qbar{flex:1;height:3px;border-radius:2px;background:rgba(4,8,12,.7);overflow:hidden}
+.quest .qbar>i{display:block;height:100%;transform-origin:left;background:var(--blue)}
+.quest .qgo{width:16px;height:16px;flex:none;fill:var(--dim)}
+.quest.done .qmk{background:rgba(95,196,90,.16);border-color:rgba(95,196,90,.42)}
+.quest.done .qmk svg{fill:var(--hp)}
+
+
+/* ---- the bar along the bottom ----
+
+   The destinations used to be a column of five down the right edge. A
+   bar is better for this game for two reasons: there are eight places to
+   go rather than five, and the bottom of a screen is where a thumb rests
+   on a phone. The active tab is marked at the top edge rather than by
+   colouring the whole cell, so the bar stays quiet while still telling
+   you where you are. */
+#navbar{position:absolute;left:0;right:0;bottom:0;z-index:12;
+  display:flex;align-items:stretch;
+  padding:0 var(--sa-r) var(--sa-b) var(--sa-l);
+  height:calc(var(--navh) + var(--sa-b));
+  background:linear-gradient(180deg,rgba(16,25,34,.97),rgba(7,11,16,.99));
+  border-top:1px solid var(--hud-line);
+  box-shadow:0 -10px 30px rgba(0,0,0,.55)}
+.nbtn{position:relative;flex:1 1 0;min-width:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  padding:6px 2px 7px;color:var(--smoke);
+  transition:color .14s,background .14s}
+.nbtn svg{width:23px;height:23px;fill:currentColor;flex:none;
+  transition:transform .14s,filter .14s}
+.nbtn u{text-decoration:none;font-family:var(--f-disp);font-size:9.5px;font-weight:700;
+  letter-spacing:.13em;text-transform:uppercase;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.nbtn::before{content:"";position:absolute;left:18%;right:18%;top:0;height:2px;
+  border-radius:0 0 3px 3px;background:var(--blue);
+  transform:scaleX(0);transform-origin:center;transition:transform .18s}
+.nbtn:hover{color:#C6DCEC;background:rgba(126,190,240,.05)}
+.nbtn.on{color:#8FD0FF;background:linear-gradient(180deg,rgba(78,168,232,.16),rgba(78,168,232,.02))}
+.nbtn.on::before{transform:scaleX(1)}
+.nbtn.on svg{filter:drop-shadow(0 0 7px var(--blue-glow))}
+.nbtn:active svg{transform:translateY(1px) scale(.94)}
+/* something needs your attention behind this tab */
+.nbtn .nbadge{position:absolute;top:5px;right:calc(50% - 22px);
+  min-width:15px;height:15px;padding:0 4px;border-radius:8px;
+  display:none;place-items:center;
+  font-family:var(--f-mono);font-size:9.5px;line-height:1;color:#FFF3EE;
+  background:#D2562A;border:1px solid rgba(255,180,150,.45);
+  box-shadow:0 2px 6px rgba(0,0,0,.5)}
+.nbtn.alert .nbadge{display:grid}
+body.indoors #navbar{display:none}
+
+/* everything anchored to the bottom now clears the bar */
+:root{--navh:62px}
+#gearcol{position:absolute;left:calc(var(--sa-l) + 12px);
+  bottom:calc(var(--sa-b) + var(--navh) + 12px);z-index:6;
+  display:flex;flex-direction:column;gap:8px;pointer-events:none}
+#gearcol > *{pointer-events:auto}
+.mmrow{display:flex;align-items:flex-end;gap:8px}
+
+#grack{width:var(--col);padding:6px;border-radius:12px;
+  background:linear-gradient(180deg,rgba(24,36,48,.9),rgba(10,16,23,.93));
+  border:1px solid var(--hud-line);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  box-shadow:0 8px 24px rgba(0,0,0,.5)}
+#grack .grl{display:flex;flex-direction:column;gap:6px;max-height:none;overflow:visible}
+#mmwrap{position:relative;width:132px;height:132px;padding:5px;border-radius:12px;
+  background:linear-gradient(180deg,rgba(24,36,48,.9),rgba(10,16,23,.93));
+  border:1px solid var(--hud-line);
+  box-shadow:0 8px 24px rgba(0,0,0,.5)}
+#mmCv{width:100%;height:100%;display:block;border-radius:8px;
+  background:#070B10;image-rendering:auto}
+
+/* ---- what you can reach for ---- */
+#useCol{display:flex;flex-direction:column;gap:8px}
+.usebtn{position:relative;width:46px;height:46px;border-radius:10px;
+  display:grid;place-items:center;
+  background:linear-gradient(180deg,rgba(28,42,56,.92),rgba(10,16,23,.94));
+  border:1px solid var(--hud-line);
+  box-shadow:0 6px 16px rgba(0,0,0,.48),inset 0 1px 0 rgba(160,200,232,.08);
+  color:#B9D3E6;transition:border-color .14s,transform .08s,color .14s}
+.usebtn svg{width:25px;height:25px;fill:currentColor}
+.usebtn b{position:absolute;right:-4px;bottom:-4px;
+  min-width:18px;height:18px;padding:0 4px;border-radius:9px;
+  display:grid;place-items:center;
+  font-family:var(--f-mono);font-size:10.5px;line-height:1;color:#E8F1F8;
+  background:linear-gradient(180deg,#2E6FA8,#173A58);
+  border:1px solid rgba(126,190,240,.45);font-variant-numeric:tabular-nums}
+.usebtn:hover{border-color:rgba(126,190,240,.45);color:#E8F4FF}
+.usebtn:active{transform:translateY(1px)}
+.usebtn.off{opacity:.42}
+
+/* ---- what your thumb does ---- */
+#acts{position:absolute;right:calc(var(--sa-r) + 14px);
+  bottom:calc(var(--sa-b) + var(--navh) + 14px);z-index:6;
+  display:flex;flex-direction:column;align-items:flex-end;gap:10px;pointer-events:none}
+.arow{display:flex;align-items:flex-end;gap:10px;pointer-events:none}
+.arow > *{pointer-events:auto}
+
+/* the ability discs - a ring that fills as the cooldown burns off */
+.act{position:relative;display:grid;place-items:center;border:0;padding:0;
+  border-radius:50%;color:#B9D3E6;
+  transition:transform .08s,box-shadow .16s,color .16s}
+.act.sm{width:58px;height:58px;
+  background:
+    conic-gradient(from -90deg,var(--ac,#4EA8E8) var(--cd,0deg),rgba(126,164,196,.14) 0)
+    border-box,
+    linear-gradient(180deg,rgba(26,40,54,.96),rgba(9,14,20,.97)) padding-box;
+  border:3px solid transparent;
+  box-shadow:0 6px 18px rgba(0,0,0,.5)}
+.act.sm svg{width:26px;height:26px;fill:currentColor;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))}
+.act .akey{position:absolute;top:-4px;left:-4px;font-style:normal;
+  min-width:18px;height:18px;padding:0 4px;border-radius:6px;
+  display:grid;place-items:center;
+  font-family:var(--f-mono);font-size:10px;line-height:1;color:#CFE2F0;
+  background:#14202C;border:1px solid var(--hud-line)}
+.act .acd{position:absolute;inset:0;display:none;place-items:center;
+  text-decoration:none;font-family:var(--f-mono);font-size:15px;color:#EAF4FF;
+  background:rgba(6,11,16,.6);border-radius:50%;
+  text-shadow:0 1px 3px rgba(0,0,0,.85);font-variant-numeric:tabular-nums}
+.act.ready{--ac:#4EA8E8;color:#8FD0FF;
+  box-shadow:0 6px 18px rgba(0,0,0,.5),0 0 16px var(--blue-glow)}
+.act.cooling{--ac:#43566A;color:rgba(185,211,230,.4)}
+.act.cooling .acd{display:grid}
+.act.cooling .akey{opacity:.4}
+.act.armed{--ac:#E2553C;color:#FFC49E;
+  box-shadow:0 6px 18px rgba(0,0,0,.5),0 0 20px rgba(226,85,60,.45)}
+.act.armed svg{animation:actArm .66s ease-in-out infinite}
+@keyframes actArm{50%{transform:scale(1.12)}}
+.act:active{transform:translateY(2px) scale(.96)}
+/* the sweep when it comes back */
+.act .asweep{position:absolute;inset:0;border-radius:50%;pointer-events:none;overflow:hidden}
+.act.charge .asweep::after{content:"";position:absolute;inset:0;
+  background:radial-gradient(circle,rgba(180,226,255,.7),rgba(180,226,255,0) 70%);
+  animation:actPulse .45s ease-out}
+@keyframes actPulse{from{transform:scale(.4);opacity:1}to{transform:scale(1.6);opacity:0}}
+
+/* AUTO - a toggle, not a cooldown */
+.act.auto{width:62px;height:62px;flex-direction:column;gap:1px;
+  background:linear-gradient(180deg,rgba(26,40,54,.96),rgba(9,14,20,.97));
+  border:2px solid var(--hud-line);
+  box-shadow:0 6px 18px rgba(0,0,0,.5)}
+.act.auto svg{width:23px;height:23px;fill:currentColor}
+.act.auto b{font-family:var(--f-disp);font-size:8.5px;font-weight:700;letter-spacing:.16em;
+  color:inherit;opacity:.85}
+.act.auto.on{border-color:var(--blue);color:#8FD0FF;
+  box-shadow:0 6px 18px rgba(0,0,0,.5),0 0 16px var(--blue-glow)}
+
+/* the trigger */
+.act.fire{width:96px;height:96px;
+  background:
+    radial-gradient(60% 60% at 50% 34%,rgba(78,168,232,.18),rgba(78,168,232,0) 72%),
+    linear-gradient(180deg,rgba(26,42,58,.96),rgba(9,14,20,.97));
+  border:3px solid rgba(78,168,232,.5);color:#9FD8FF;
+  box-shadow:0 10px 28px rgba(0,0,0,.58),0 0 22px rgba(78,168,232,.2),
+             inset 0 2px 0 rgba(160,210,245,.14)}
+.act.fire svg{width:40px;height:40px;fill:currentColor;transform:rotate(-45deg);
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))}
+.act.fire .fring{position:absolute;inset:-7px;border-radius:50%;pointer-events:none;
+  border:2px solid rgba(78,168,232,.26)}
+.act.fire:hover{border-color:rgba(126,200,255,.7)}
+.act.fire:active,.act.fire.on{border-color:#8FD0FF;color:#E6F5FF;
+  box-shadow:0 6px 18px rgba(0,0,0,.6),0 0 30px rgba(78,168,232,.45)}
+.act.fire.on .fring{animation:fireRing .5s linear infinite}
+@keyframes fireRing{
+  from{transform:scale(1);opacity:.7}
+  to{transform:scale(1.16);opacity:0}
+}
+
+body.basemode #acts,body.indoors #acts,
+body.basemode #gearcol,body.indoors #gearcol{display:none}
+
+/* the pads move up off the bar */
+#movepad{left:calc(var(--sa-l) + 18px);
+  bottom:calc(var(--sa-b) + var(--navh) + 168px)}
+#aimpad{right:calc(var(--sa-r) + 18px);
+  bottom:calc(var(--sa-b) + var(--navh) + 128px)}
+#basedock{padding-bottom:calc(var(--sa-b) + var(--navh) + 10px)}
+body.basemode #bpop{bottom:calc(var(--navh) + 204px)}
+#bpop{bottom:calc(var(--sa-b) + var(--navh) + 18px)}
+#recenter{bottom:calc(var(--sa-b) + var(--navh) + 12px)}
+#toolrail{bottom:auto}
+
+@media (max-width:900px){
+  :root{--navh:60px}
+  .nbtn svg{width:21px;height:21px}
+  .nbtn u{font-size:8.5px;letter-spacing:.09em}
+  #grack{width:180px}
+  #mmwrap{width:112px;height:112px}
+  .act.fire{width:88px;height:88px}
+  .act.fire svg{width:36px;height:36px}
+}
+@media (max-width:560px){
+  :root{--navh:56px;--col:196px}
+  /* On a phone the card cannot hold a bar AND its figures, and a bar
+     squeezed to nothing is a green dot that says less than no bar at
+     all. The bar survives; the numbers go. */
+  .bar u{display:none}
+  .bar{grid-template-columns:auto minmax(0,1fr)}
+  .btrack{height:10px}
+  .nbtn{gap:3px}
+  .nbtn svg{width:20px;height:20px}
+  .nbtn u{font-size:0;letter-spacing:0}
+  .nbtn.on u{font-size:8px;letter-spacing:.08em}
+  #grack{width:142px;padding:5px}
+  #mmwrap{width:96px;height:96px}
+  .usebtn{width:42px;height:42px}
+  .act.sm{width:52px;height:52px}
+  .act.auto{width:56px;height:56px}
+  .act.fire{width:80px;height:80px}
+  .act.fire svg{width:32px;height:32px}
+}
+
+/* ==================== buttons, second pass ==============================
+   Layered after the block above rather than replacing it, so the cascade
+   settles the overlaps and nothing that already worked is at risk.
+
+   Two things here are repairs, not polish. The discs draw their cooldown
+   as a conic sweep reading `--cd`, and nothing ever wrote that variable -
+   the ring has been sitting empty through every cooldown the game has
+   run. And the countdown was an overlay at `inset:0`, 52 pixels of dark
+   disc over a 58 pixel button, so a cooling ability lost its icon
+   entirely and you could not tell dash from grenade while you waited for
+   either. The rest is making a press feel like a press.
+   ======================================================================= */
+
+/* ---- the bar along the bottom ---- */
+.nbtn{gap:3px;padding:5px 2px 6px;
+  -webkit-tap-highlight-color:transparent;
+  transition:color .16s}
+.nbtn .nico{position:relative;display:grid;place-items:center;
+  width:46px;height:30px;border-radius:11px;
+  transition:transform .22s cubic-bezier(.34,1.4,.5,1)}
+/* the pill behind the active tab, grown from nothing rather than shown */
+.nbtn .nico::before{content:"";position:absolute;inset:0;border-radius:11px;
+  background:linear-gradient(180deg,rgba(78,168,232,.26),rgba(78,168,232,.07));
+  box-shadow:inset 0 1px 0 rgba(180,224,255,.22);
+  transform:scale(.55);opacity:0;
+  transition:transform .24s cubic-bezier(.34,1.4,.5,1),opacity .18s}
+.nbtn.on .nico::before{transform:scale(1);opacity:1}
+.nbtn.on .nico{transform:translateY(-3px)}
+.nbtn.on svg{filter:drop-shadow(0 2px 6px var(--blue-glow))}
+.nbtn.on u{color:#9FD8FF}
+/* the old full-width tint fought the pill for the eye; the pill wins */
+.nbtn.on{background:none}
+.nbtn:hover{background:none;color:#C6DCEC}
+.nbtn:hover .nico::before{opacity:.35;transform:scale(.9)}
+.nbtn.on:hover .nico::before{opacity:1;transform:scale(1)}
+/* a press you can feel: the icon takes the hit, the label does not move */
+.nbtn:active .nico{transform:translateY(0) scale(.9);transition-duration:.07s}
+.nbtn.on:active .nico{transform:translateY(-2px) scale(.92)}
+/* the tab you just switched to gives one small kick */
+.nbtn.on svg{animation:navPop .34s cubic-bezier(.3,1.5,.5,1)}
+@keyframes navPop{0%{transform:scale(.72)}60%{transform:scale(1.14)}100%{transform:scale(1)}}
+/* the badge hangs off the icon now, not off the middle of the button */
+.nbtn .nbadge{top:-3px;right:1px;left:auto}
+.nbtn.alert .nbadge{animation:navBadge 2.6s ease-in-out infinite}
+@keyframes navBadge{0%,88%,100%{transform:scale(1)}94%{transform:scale(1.22)}}
+
+/* ---- the ability discs ---- */
+.act.sm{width:64px;height:64px}
+.act.sm svg{width:28px;height:28px;transition:transform .12s,opacity .16s}
+
+/* The seconds move to a tab under the disc. The icon stays on, dimmed:
+   an ability you cannot identify while it cools is no better than one
+   you cannot see, and knowing WHICH thing is two seconds out is the
+   whole reason to look. */
+.act .acd{inset:auto;top:auto;bottom:-3px;left:50%;transform:translateX(-50%);
+  width:auto;min-width:30px;height:17px;padding:0 6px;border-radius:9px;
+  place-items:center;font-size:10.5px;
+  background:#101C26;border:1px solid var(--hud-line);
+  box-shadow:0 2px 6px rgba(0,0,0,.55)}
+.act.cooling .acd{display:grid}
+/* Dimmed, not erased. The colour underneath is already at 40% alpha, so
+   the half-opacity this first carried multiplied out to 0.2 - which is
+   not "a cooling ability", it is an empty circle with a number under it.
+   Together these land near 0.56: plainly off, still plainly a grenade. */
+.act.cooling{color:rgba(185,211,230,.72)}
+.act.cooling svg{opacity:.78;transform:scale(.94)}
+
+/* ready, and quietly saying so - one slow breath, not a strobe */
+/* `background:none` is not decoration. The first styling of these buttons
+   put a diagonal sweep gradient on `.act.charge::after`, and an ability
+   that has just come back carries `charge` and `ready` at the same time -
+   so this ring inherited a cream streak across it from a rule written for
+   a different shape of button entirely. */
+.act.ready::after{content:"";position:absolute;inset:-3px;border-radius:50%;
+  pointer-events:none;border:2px solid rgba(143,208,255,.5);
+  background:none;
+  animation:actBreath 2.8s ease-in-out infinite}
+@keyframes actBreath{
+  0%,100%{transform:scale(1);opacity:0}
+  45%{transform:scale(1.14);opacity:.5}
+  75%{transform:scale(1.2);opacity:0}}
+.act.cooling::after,.act.armed::after{display:none}
+
+/* the press: the disc takes it, and a ring leaves from under the thumb */
+.act{-webkit-tap-highlight-color:transparent}
+.act:active{transform:scale(.9);transition-duration:.06s}
+.act .asweep::before{content:"";position:absolute;inset:0;border-radius:50%;
+  border:2px solid rgba(180,226,255,.75);opacity:0;pointer-events:none}
+.act:active .asweep::before{animation:actTap .34s ease-out}
+@keyframes actTap{from{transform:scale(.7);opacity:.9}to{transform:scale(1.5);opacity:0}}
+
+/* armed grenade: the disc leans in as well as the icon */
+.act.armed{animation:actArmed .66s ease-in-out infinite}
+@keyframes actArmed{50%{box-shadow:0 6px 18px rgba(0,0,0,.5),0 0 30px rgba(226,85,60,.6)}}
+
+/* AUTO reads as a switch, so it gets a switch's travel */
+.act.auto{width:64px;height:64px}
+.act.auto svg{transition:transform .2s cubic-bezier(.34,1.4,.5,1)}
+.act.auto.on svg{transform:rotate(90deg)}
+.act.auto.on{animation:autoOn .4s cubic-bezier(.3,1.4,.5,1)}
+@keyframes autoOn{0%{transform:scale(.88)}55%{transform:scale(1.07)}100%{transform:scale(1)}}
+
+/* the trigger recoils rather than just dimming */
+.act.fire{width:100px;height:100px}
+.act.fire svg{transition:transform .07s}
+.act.fire:active svg,.act.fire.on svg{transform:rotate(-45deg) translate(-3px,3px) scale(.92)}
+.act.fire:active{transform:scale(.94)}
+.act.fire.on{animation:fireHold .22s ease-in-out infinite alternate}
+@keyframes fireHold{to{box-shadow:0 6px 18px rgba(0,0,0,.6),0 0 38px rgba(78,168,232,.6)}}
+
+/* the two pouch buttons match the discs they sit under */
+.usebtn{-webkit-tap-highlight-color:transparent;transition:transform .09s,border-color .16s}
+.usebtn:active{transform:scale(.9)}
+.usebtn.off{opacity:.42}
+
+/* Touch targets. Apple's floor is 44px and these are the controls you
+   hit under pressure, so the discs go up on a phone rather than down -
+   it is the map and the rack that can afford to shrink. */
+@media (max-width:900px){
+  .act.sm{width:70px;height:70px}
+  .act.sm svg{width:31px;height:31px}
+  .act.auto{width:70px;height:70px}
+  .act.fire{width:104px;height:104px}
+  .act.fire svg{width:42px;height:42px}
+  .act .acd{font-size:11.5px;height:19px;min-width:34px}
+  .nbtn .nico{width:44px;height:29px}
+}
+@media (max-width:560px){
+  .act.sm{width:62px;height:62px}
+  .act.sm svg{width:28px;height:28px}
+  .act.auto{width:62px;height:62px}
+  .act.fire{width:92px;height:92px}
+  .act.fire svg{width:37px;height:37px}
+  .nbtn .nico{width:38px;height:27px}
+  .nbtn u{font-size:8px;letter-spacing:.06em}
+  .nbtn.on u{font-size:8px}
+}
+/* On a touch device the aim pad and the action cluster were both pinned
+   to the bottom-right corner and sat on top of each other - the pad's
+   96px disc covered dash, AUTO and most of the trigger, and since both
+   listen for pointerdown, which one you got depended on stacking order
+   rather than on where you meant to press. They get their own space now:
+   the pad keeps the corner, because that is where the thumb rests, and
+   the buttons sit above it.
+
+   Coarse pointers only. There is no pad on a desktop, so there is
+   nothing there to clear and the layout stays as it was. */
+@media (pointer:coarse){
+  #acts{bottom:calc(var(--sa-b) + 212px)}
+}
+@media (pointer:coarse) and (max-width:560px){
+  #acts{bottom:calc(var(--sa-b) + 204px)}
+}
+
+/* Anyone who has asked the OS to calm things down gets the states
+   without the motion. */
+@media (prefers-reduced-motion:reduce){
+  .act.ready::after,.act.armed,.act.fire.on,.nbtn.alert .nbadge,
+  .nbtn.on svg,.act.auto.on{animation:none}
+  .act.ready::after{opacity:.4}
+}
+
+/* ============================ notices ==================================== */
+#toasts{position:absolute;left:50%;transform:translateX(-50%);
+  top:calc(var(--sa-t) + 78px);z-index:8;display:flex;flex-direction:column;gap:6px;
+  align-items:center;pointer-events:none;width:min(92vw,420px)}
+.toast{background:rgba(10,14,18,.94);border:1px solid var(--line);
+  border-left:2px solid var(--smoke);padding:7px 14px;max-width:100%;
+  display:flex;gap:10px;align-items:baseline;box-shadow:0 6px 20px rgba(0,0,0,.55);
+  animation:toastIn .26s ease-out}
+.toast.out{animation:toastOut .38s ease-in forwards}
+.toast b{font-family:var(--f-disp);font-weight:600;font-size:13.5px;letter-spacing:.05em;
+  white-space:nowrap}
+.toast span{font-size:12px;color:var(--smoke);min-width:0}
+.toast.loot{border-left-color:var(--amber)}
+.toast.loot span{font-family:var(--f-mono);font-size:11.5px;color:var(--bone)}
+@keyframes toastIn{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateY(-7px)}}
+
+#banner{position:absolute;left:0;right:0;top:30%;text-align:center;pointer-events:none;
+  z-index:7;opacity:0}
+#banner b{display:block;font-family:var(--f-disp);font-weight:700;font-size:44px;
+  letter-spacing:.3em;text-transform:uppercase;color:var(--bone);
+  text-shadow:0 4px 40px rgba(0,0,0,.95)}
+#banner small{display:block;font-family:var(--f-disp);font-size:13px;letter-spacing:.28em;
+  text-transform:uppercase;color:var(--amber);margin-top:10px;
+  text-shadow:0 2px 14px rgba(0,0,0,.9)}
+#banner.show{animation:bannerIn 2.6s ease-out}
+@keyframes bannerIn{
+  0%{opacity:0;transform:scale(1.04)}
+  14%{opacity:1;transform:scale(1)}
+  74%{opacity:1}
+  100%{opacity:0}
+}
+
+#hint{position:absolute;left:50%;transform:translateX(-50%);
+  bottom:calc(var(--sa-b) + 76px);z-index:8;
+  padding:6px 14px;border-radius:9px;
+  background:rgba(10,14,18,.94);border:1px solid var(--line);
+  font-size:12.5px;color:var(--bone);opacity:0;pointer-events:none;
+  transition:opacity .2s;white-space:nowrap;max-width:88vw;overflow:hidden;
+  text-overflow:ellipsis}
+#hint.on{opacity:1}
+
+/* ============================ console ==================================== *
+   Everything that is not the world opens here: one panel, in the middle of
+   the screen, with the sections down its own left edge.
+
+   It used to be a drawer against the right-hand edge, which is fine for a
+   single readout and wrong for everything else - an arsenal, a blueprint
+   catalogue and a map were all being poured through a 424px slot while
+   two thirds of the screen sat empty behind a dimmer. Centre it, give it
+   room, and let you walk between the sections without going back out to
+   the world to pick a different one.
+   ========================================================================= */
+#scrim{position:absolute;inset:0;z-index:12;background:rgba(3,5,7,.64);opacity:0;
+  pointer-events:none;transition:opacity .22s;
+  -webkit-backdrop-filter:blur(3px) saturate(.7);backdrop-filter:blur(3px) saturate(.7)}
+#scrim.on{opacity:1;pointer-events:auto}
+
+/* A closed console must be GONE, not merely invisible.
+
+   It was transparent and pointer-events:none, but the panel inside set
+   pointer-events:auto on itself - which does not inherit the parent's
+   none, it overrides it. So a 1080px panel nobody could see went on
+   swallowing every click in the middle of the screen: no shooting, no
+   searching a container, no placing a wall. `visibility:hidden` is the
+   fix, because that one a child cannot override. */
+#sheetWrap{position:absolute;inset:0;z-index:14;display:grid;place-items:center;
+  padding:calc(var(--sa-t) + 22px) 22px calc(var(--sa-b) + 22px);
+  pointer-events:none;opacity:0;visibility:hidden;
+  transition:opacity .16s,visibility 0s linear .16s}
+#sheetWrap.open{pointer-events:auto;opacity:1;visibility:visible;
+  transition:opacity .16s,visibility 0s}
+
+#sheet{display:flex;flex-direction:column;overflow:hidden;
+  width:min(1120px,100%);height:min(752px,100%);
+  border:1px solid var(--line);border-radius:5px;
+  background:linear-gradient(180deg,rgba(15,20,25,.985),rgba(6,9,12,.995));
+  -webkit-backdrop-filter:blur(20px) saturate(.9);backdrop-filter:blur(20px) saturate(.9);
+  box-shadow:0 36px 96px rgba(0,0,0,.7),inset 0 1px 0 rgba(228,224,214,.06);
+  transform:scale(.976) translateY(10px);opacity:0;
+  transition:transform .22s cubic-bezier(.2,.9,.3,1),opacity .16s}
+#sheetWrap.open #sheet{transform:none;opacity:1}
+
+.shead{display:flex;align-items:center;gap:14px;flex:none;
+  padding:15px 15px 14px 21px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(228,224,214,.05),rgba(228,224,214,0))}
+.shead .st{flex:1;min-width:0}
+.shead h3{font-family:var(--f-disp);font-weight:700;font-size:25px;letter-spacing:.11em;
+  text-transform:uppercase;line-height:1.02}
+.shead p{margin:3px 0 0;font-size:12.5px;color:var(--smoke);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#sheetClose{width:38px;height:38px;flex:none;border:1px solid var(--line);border-radius:3px;
+  display:grid;place-items:center;color:var(--smoke);font-size:15px;
+  transition:color .13s,border-color .13s,background .13s}
+#sheetClose:hover{color:var(--bone);border-color:rgba(228,224,214,.34);
+  background:rgba(228,224,214,.06)}
+
+.sframe{flex:1;min-height:0;display:flex}
+#sheetNav{flex:none;width:146px;padding:12px 9px;overflow-y:auto;
+  border-right:1px solid var(--line);background:rgba(0,0,0,.24);
+  display:flex;flex-direction:column;gap:2px}
+.snav{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  padding:10px 11px;border-radius:3px;min-height:40px;
+  border-left:2px solid transparent;color:var(--smoke);
+  font-family:var(--f-disp);font-weight:600;font-size:13.5px;letter-spacing:.11em;
+  text-transform:uppercase;white-space:nowrap;
+  transition:background .13s,color .13s,border-color .13s}
+.snav svg{width:18px;height:18px;flex:none;fill:currentColor}
+.snav:hover{background:rgba(228,224,214,.06);color:var(--bone)}
+.snav.on{background:rgba(227,166,63,.10);color:var(--amber);border-left-color:var(--amber)}
+
+#sheetBody{flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;padding:18px 22px 26px;scrollbar-width:thin;
+  scrollbar-color:rgba(228,224,214,.18) transparent}
+#sheetBody::-webkit-scrollbar,#sheetNav::-webkit-scrollbar{width:11px}
+#sheetBody::-webkit-scrollbar-track,#sheetNav::-webkit-scrollbar-track{background:transparent}
+#sheetBody::-webkit-scrollbar-thumb,#sheetNav::-webkit-scrollbar-thumb{
+  background:rgba(228,224,214,.15);background-clip:content-box;
+  border:3px solid transparent;border-radius:7px}
+#sheetBody::-webkit-scrollbar-thumb:hover{background:rgba(228,224,214,.3);
+  background-clip:content-box;border:3px solid transparent}
+
+/* A phone gets the whole screen and the sections as a strip along the top:
+   146px of rail out of 380px of width is not a trade worth making. */
+@media (max-width:760px){
+  #sheetWrap{padding:0}
+  #sheet{width:100%;height:100%;border:0;border-radius:0}
+  .shead{padding:calc(var(--sa-t) + 13px) 12px 12px 16px}
+  .shead h3{font-size:21px}
+  .sframe{flex-direction:column}
+  #sheetNav{width:auto;flex-direction:row;gap:4px;padding:8px 10px;overflow-x:auto;
+    overflow-y:hidden;border-right:0;border-bottom:1px solid var(--line);
+    scrollbar-width:none}
+  #sheetNav::-webkit-scrollbar{display:none}
+  /* width:100% is right for a column and makes one chip fill the strip in
+     a row, hiding the other five behind a scroll nobody knows is there */
+  .snav{flex:0 0 auto;width:auto;border-left:0;border-bottom:2px solid transparent;
+    padding:8px 12px;font-size:12.5px;letter-spacing:.09em}
+  .snav.on{border-left-color:transparent;border-bottom-color:var(--amber)}
+  #sheetBody{padding:15px 15px calc(var(--sa-b) + 26px)}
+}
+
+.slab{font-family:var(--f-disp);font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--dim);margin:20px 0 10px;display:flex;align-items:center;gap:10px;font-weight:600}
+.slab:first-child{margin-top:0}
+.slab::after{content:"";flex:1;height:1px;
+  background:linear-gradient(90deg,var(--line),rgba(228,224,214,0))}
+
+.empty,.note{color:var(--smoke);font-size:13px;line-height:1.55;margin:8px 0 0}
+
+/* ---- tabs ---- */
+.tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;margin:0 0 14px;
+  padding-bottom:2px}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:8px 14px;
+  border:1px solid var(--line);color:var(--smoke);
+  font-family:var(--f-disp);font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+  font-weight:600;white-space:nowrap;min-height:38px}
+.tab i{font-style:normal;font-size:13px}
+.tab:hover{color:var(--bone);border-color:rgba(228,224,214,.24)}
+.tab.on{background:rgba(227,166,63,.11);color:var(--amber);
+  border-color:rgba(227,166,63,.42);box-shadow:inset 0 0 0 1px rgba(227,166,63,.08)}
+.tabs{margin-bottom:16px}
+
+/* ---- cards ----
+   Auto-filling rather than a single stretched column: in a 960px body a
+   list of one-line cards two feet wide is harder to read, not easier. */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(318px,1fr));
+  gap:8px;align-items:start}
+.card{display:grid;grid-template-columns:118px 1fr;grid-template-rows:auto auto;gap:0 13px;
+  border:1px solid var(--line);background:rgba(228,224,214,.022);padding:11px 12px;
+  align-items:start}
+.card.lock{opacity:.6}
+.card.on{border-color:var(--moss);background:rgba(127,164,92,.08)}
+.cart{grid-row:1/3;width:118px;height:94px;display:grid;place-items:center;
+  background:radial-gradient(62% 58% at 50% 42%,rgba(228,224,214,.09),transparent 72%);
+  border:1px solid var(--line-soft);
+  box-shadow:inset 0 1px 0 rgba(228,224,214,.05);position:relative;overflow:hidden}
+/* the ground it stands on - without it the piece floats in a dark box */
+.cart::after{content:"";position:absolute;left:14%;right:14%;bottom:15%;height:7px;
+  border-radius:50%;background:radial-gradient(50% 50% at 50% 50%,rgba(0,0,0,.5),rgba(0,0,0,0) 72%)}
+.cart canvas{position:relative;z-index:1}
+.card:hover .cart{background:radial-gradient(62% 58% at 50% 42%,rgba(228,224,214,.16),transparent 72%)}
+.cart canvas{display:block}
+.cinfo{min-width:0;display:flex;flex-direction:column;gap:3px}
+.cinfo b{font-family:var(--f-disp);font-weight:600;font-size:16px;letter-spacing:.04em}
+.cinfo p{margin:0;font-size:12px;color:var(--smoke);line-height:1.35}
+.ccost{display:flex;gap:9px;flex-wrap:wrap;margin-top:3px}
+.cact{grid-column:2;display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+.lockmsg{font-family:var(--f-mono);font-size:11px;color:var(--dim);align-self:center}
+.card.attach,.cards.attach .card{grid-template-columns:1fr}
+.cards.attach .cinfo{grid-column:1}
+.cards.attach .cact{grid-column:1}
+.mods{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.mods s{text-decoration:none;font-family:var(--f-mono);font-size:10.5px;padding:1px 7px;
+  border:1px solid var(--line);color:var(--smoke)}
+.mods s.up{color:var(--moss);border-color:rgba(127,164,92,.35)}
+.mods s.dn{color:var(--rust);border-color:rgba(210,86,42,.3)}
+.mods s.sp{color:var(--ice);border-color:rgba(111,168,196,.3)}
+
+/* ---- surfaces ----
+   Every panel inside the console is one of a handful of things: a slab you
+   read, a slab you press, or a tile holding a picture. They were each
+   carrying their own corner radius, their own hover and their own border,
+   picked one at a time as they were written, and side by side in a panel
+   this size the inconsistency is the first thing you see. One radius, one
+   hover, one pressed state, applied to the lot. */
+.btn,.tab,.card,.rcell,.ucard,.menuitem,.strow,.slot,.toggle,.powerbox,
+.facts,.stage,.wstats,.mapwrap,.cart,#sheetClose,.tool,.qcard{border-radius:4px}
+.btn,.tab,.ucard,.menuitem,.strow,.slot,.toggle,.tool,.snav,#sheetClose{
+  transition:background .14s,border-color .14s,color .14s,transform .08s}
+.btn:active,.tab:active,.ucard:active,.menuitem:active,.strow:active,
+.slot:active,.tool:active{transform:translateY(1px)}
+.card,.rcell,.ucard,.menuitem,.strow,.slot,.toggle,.powerbox,.facts,.wstats{
+  background-image:linear-gradient(180deg,rgba(228,224,214,.035),rgba(228,224,214,0) 42%)}
+
+/* ---- buttons ---- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  min-height:40px;padding:0 16px;border:1px solid var(--line);
+  font-family:var(--f-disp);font-weight:600;font-size:13px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--bone)}
+.btn:hover{background:rgba(228,224,214,.08);border-color:rgba(228,224,214,.26)}
+.btn.go{border-color:rgba(127,164,92,.5);color:#C4DFA8;background:rgba(127,164,92,.10)}
+.btn.go:hover{background:rgba(127,164,92,.2)}
+.btn.danger{border-color:rgba(210,86,42,.5);color:#EFA184;background:rgba(210,86,42,.09)}
+.btn.danger:hover{background:rgba(210,86,42,.2)}
+.btn.ghost{color:var(--smoke)}
+.btn.off{opacity:.42;pointer-events:none}
+.btn.wide{width:100%;margin-bottom:12px}
+.btn em{font-style:normal}
+.bcost{font-family:var(--f-mono);font-size:11px;letter-spacing:0;text-transform:none;
+  color:var(--smoke);display:flex;gap:7px}
+.bcost s{text-decoration:none}
+.bcost s.no{color:var(--rust)}
+
+/* ---- resource grid ---- */
+.resgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}
+.rcell{border:1px solid var(--line);padding:8px 9px;display:flex;flex-direction:column;
+  gap:1px;background:rgba(228,224,214,.02)}
+.rcell svg.gi{margin-bottom:2px}
+.rcell b{font-family:var(--f-mono);font-size:15px;font-variant-numeric:tabular-nums}
+.rcell s{text-decoration:none;font-family:var(--f-disp);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--dim)}
+.rcell.full b{color:var(--amber)}
+
+.powerbox{border:1px solid var(--line);padding:12px 13px;background:rgba(228,224,214,.02)}
+.prow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  font-size:12.5px;color:var(--smoke);padding:3px 0}
+.prow b{font-family:var(--f-mono);font-size:14px;color:var(--bone);
+  font-variant-numeric:tabular-nums}
+.ptrack{height:4px;background:rgba(0,0,0,.6);margin:9px 0 4px;overflow:hidden}
+.ptrack>div{height:100%;background:var(--ice);transform-origin:left}
+.powerbox p{margin:6px 0 0;font-size:12px;color:var(--dim)}
+
+/* ---- structure panel ----
+   Two columns on a panel this wide: what it is on the left, what you can
+   do about it on the right. Stacked full-width strips left the whole
+   lower half of a 960px sheet empty while the preview sat in a corner
+   the size of a postage stamp. */
+#sheetBody.stpanel{display:grid;grid-template-columns:minmax(0,1fr) 300px;
+  gap:20px;align-items:start}
+@media (max-width:1000px){
+  #sheetBody.stpanel{grid-template-columns:minmax(0,1fr)}
+}
+.sthead{display:flex;gap:16px;align-items:center;margin-bottom:16px;
+  border:1px solid var(--line);border-radius:4px;padding:14px 16px;
+  background:rgba(228,224,214,.02);
+  background-image:linear-gradient(180deg,rgba(228,224,214,.045),rgba(228,224,214,0) 44%)}
+.sthead canvas{flex:none;display:block;border-radius:4px;
+  border:1px solid var(--line-soft);
+  background:radial-gradient(62% 56% at 50% 44%,rgba(228,224,214,.11),transparent 72%);
+  box-shadow:inset 0 1px 0 rgba(228,224,214,.05)}
+.stmeta{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.stlv{font-family:var(--f-disp);font-weight:700;font-size:22px;letter-spacing:.06em}
+.stlv s{text-decoration:none;color:var(--dim);font-size:14px}
+.stbar{height:6px;border-radius:3px;background:rgba(0,0,0,.62);overflow:hidden;
+  border:1px solid var(--line-soft);box-shadow:inset 0 1px 2px rgba(0,0,0,.5)}
+.stbar>div{height:100%;background:var(--moss);transform-origin:left}
+.sthp{font-family:var(--f-mono);font-size:11.5px;color:var(--smoke)}
+.stacts{display:flex;flex-direction:column;gap:7px}
+.stacts .btn{width:100%;justify-content:space-between}
+.stacts .lockmsg{text-align:center;padding:10px 0}
+.facts{border:1px solid var(--line);background:rgba(228,224,214,.02)}
+.fact{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  padding:8px 12px;border-bottom:1px solid var(--line-soft)}
+.fact:last-child{border-bottom:0}
+.fact span{font-size:12.5px;color:var(--smoke)}
+.fact b{font-family:var(--f-mono);font-size:13px;font-weight:500;
+  font-variant-numeric:tabular-nums;text-align:right}
+
+.stlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:5px}
+.strow{display:flex;align-items:baseline;gap:10px;width:100%;text-align:left;
+  padding:9px 12px;border:1px solid var(--line);background:rgba(228,224,214,.02)}
+.strow:hover{background:rgba(228,224,214,.06)}
+.strow b{font-family:var(--f-disp);font-weight:600;font-size:14.5px;letter-spacing:.03em;
+  flex:none}
+.strow s{text-decoration:none;font-size:11.5px;color:var(--smoke);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.strow em{font-style:normal;font-family:var(--f-mono);font-size:11px;color:var(--dim)}
+.strow.warn em{color:var(--rust)}
+.strow.dead{opacity:.45}
+
+/* ---- menu ---- */
+.menulist{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:6px}
+.menuitem{padding:13px 14px;border:1px solid var(--line);text-align:left;
+  font-family:var(--f-disp);font-size:14.5px;letter-spacing:.06em;font-weight:600;
+  background:rgba(228,224,214,.02);min-height:46px}
+.menuitem:hover{background:rgba(228,224,214,.08);border-color:rgba(228,224,214,.3)}
+.menuitem::after{content:"\203A";float:right;color:var(--dim);font-size:17px;line-height:1}
+
+/* ---- skills ---- */
+.ugrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:7px}
+.ucard{border:1px solid var(--line);background:rgba(228,224,214,.02);padding:10px 11px;
+  text-align:left;display:flex;flex-direction:column;gap:5px;min-height:98px}
+.ucard:hover{background:rgba(228,224,214,.06)}
+.ucard.no{opacity:.5}
+.ucard.max{border-color:rgba(227,166,63,.4)}
+.ut{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ut b{font-family:var(--f-disp);font-weight:600;font-size:14.5px;letter-spacing:.03em}
+.ut s{text-decoration:none;font-family:var(--f-mono);font-size:11px;color:var(--smoke)}
+.ucard p{margin:0;flex:1;font-size:11.5px;color:var(--smoke);line-height:1.35}
+.ub{font-family:var(--f-mono);font-size:12px;color:var(--amber);
+  border-top:1px solid var(--line-soft);padding-top:6px}
+.ucard.no .ub{color:var(--rust)}
+.ucard.max .ub{color:var(--dim)}
+
+/* ---- weapon bay ----
+   Two columns on anything wide enough: the gun and its numbers on the
+   left, the arsenal standing down the right where you can see what else
+   you own while you read what this one does. */
+#sheetBody.wbay{display:grid;grid-template-columns:minmax(0,1fr) 274px;gap:0;
+  height:100%;overflow:hidden;padding:0}
+/* each column scrolls on its own, so the arsenal stays put while you read
+   what the gun in the stage actually does */
+.wbay .wmain{min-width:0;overflow-y:auto;padding:18px 20px 26px 22px;
+  scrollbar-width:thin;scrollbar-color:rgba(228,224,214,.18) transparent}
+.wbay .wside{min-width:0;overflow-y:auto;padding:18px 16px 26px 4px;
+  display:flex;flex-direction:column;gap:7px;scrollbar-width:thin;
+  scrollbar-color:rgba(228,224,214,.18) transparent}
+.wbay .wside .slab{margin-top:0}
+.wbay .wmain::-webkit-scrollbar,.wbay .wside::-webkit-scrollbar{width:10px}
+.wbay .wmain::-webkit-scrollbar-thumb,.wbay .wside::-webkit-scrollbar-thumb{
+  background:rgba(228,224,214,.15);background-clip:content-box;
+  border:3px solid transparent;border-radius:6px}
+@media (max-width:1000px){
+  #sheetBody.wbay{grid-template-columns:minmax(0,1fr);overflow-y:auto;height:auto}
+  .wbay .wmain,.wbay .wside{overflow:visible;padding:0}
+  .wbay .wmain{padding:18px 18px 4px}
+  .wbay .wside{padding:0 18px 26px}
+}
+.stage{position:relative;aspect-ratio:16/10;max-width:100%;border:1px solid var(--line);
+  border-radius:4px;background:#0A0E12;overflow:hidden;margin-bottom:16px}
+.gunstage{position:absolute;inset:0;width:100%;height:100%;display:block;
+  touch-action:none;cursor:grab}
+.gunstage.grabbing{cursor:grabbing}
+.stools{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;
+  justify-content:space-between;gap:10px;padding:8px 10px;pointer-events:none}
+.tool{pointer-events:auto;padding:5px 11px;border:1px solid var(--line);
+  background:rgba(8,11,14,.8);font-family:var(--f-disp);font-size:10.5px;
+  letter-spacing:.15em;text-transform:uppercase;color:var(--smoke)}
+.tool:hover{color:var(--bone);border-color:var(--bone)}
+.thint{font-family:var(--f-mono);font-size:10px;color:var(--dim)}
+.whead{margin-bottom:12px}
+.wtop{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.wtop h4{font-family:var(--f-disp);font-weight:700;font-size:26px;letter-spacing:.04em}
+.rar{text-decoration:none;font-family:var(--f-disp);font-size:10px;font-weight:700;
+  letter-spacing:.16em;text-transform:uppercase;padding:2px 8px;color:#0A0E12}
+.wblurb{margin:5px 0 0;font-size:12.5px;color:var(--smoke);line-height:1.45}
+.wstats{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);
+  background:rgba(228,224,214,.02)}
+.wstat:nth-child(4n+1),.wstat:nth-child(4n+2){background:rgba(228,224,214,.028)}
+.wstat{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  padding:8px 12px;border-bottom:1px solid var(--line-soft);
+  border-right:1px solid var(--line-soft)}
+.wstat:nth-child(2n){border-right:0}
+.wstat span{font-size:12px;color:var(--smoke)}
+.wstat b{font-family:var(--f-mono);font-size:13.5px;font-weight:500;
+  font-variant-numeric:tabular-nums}
+.perks{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.perk{font-family:var(--f-mono);font-size:11px;padding:2px 9px;color:var(--ice);
+  border:1px solid rgba(111,168,196,.3)}
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:6px}
+.slot{border:1px solid var(--line);padding:9px 12px;text-align:left;min-height:52px;
+  background:rgba(228,224,214,.02);display:flex;flex-direction:column;gap:2px;min-height:50px}
+.slot:hover{background:rgba(228,224,214,.06)}
+.slot i{font-style:normal;font-family:var(--f-disp);font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--dim)}
+.slot b{font-size:12.5px;font-weight:500;color:var(--dim);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.slot.has b{color:var(--bone)}
+.wlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(266px,1fr));gap:6px}
+.wrow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:8px 11px;
+  border:1px solid var(--line);background:rgba(228,224,214,.02)}
+.wrow:hover{background:rgba(228,224,214,.06)}
+.wrow.on{border-color:rgba(227,166,63,.45);background:rgba(227,166,63,.07)}
+.wrow.lock{opacity:.64}
+.wthumb{width:62px;height:34px;flex:none;overflow:hidden;display:grid;place-items:center}
+.wthumb canvas{width:62px;height:34px;display:block}
+.wnm{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.wnm b{font-family:var(--f-disp);font-weight:600;font-size:14.5px;letter-spacing:.03em}
+.wnm s{text-decoration:none;font-family:var(--f-mono);font-size:11px;color:var(--smoke)}
+
+/* ---- the skill tree ----
+   A flat-top honeycomb clipped out of two stacked layers: the outer one
+   is the edge colour, the inner one inset by 2px is the fill. A border
+   cannot be drawn on a clipped element - the clip takes the border with
+   it - so the border is a hexagon showing round the edge of a slightly
+   smaller hexagon.
+   ------------------------------------------------------------------- */
+#sheetBody.treescreen{height:100%;overflow:hidden;padding:0}
+/* A seven-column honeycomb does not fit across a phone at any tile size
+   worth reading, so below that width the board is dragged rather than
+   shrunk. `margin:auto` and not `place-items:center` because a centred
+   flex item that overflows puts its own left edge out of reach. */
+.treeview{position:relative;width:100%;height:100%;overflow:auto;display:flex;
+  scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  background:radial-gradient(64% 58% at 50% 46%,rgba(228,224,214,.045),rgba(0,0,0,0) 72%)}
+.treeview::-webkit-scrollbar{display:none}
+.tree{position:relative;margin:auto;flex:none;--hxs:1}
+.treetabs{position:absolute;left:0;right:0;top:0;z-index:3;
+  display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;
+  padding:11px 14px 9px;
+  background:linear-gradient(180deg,rgba(6,9,12,.96),rgba(6,9,12,.7) 72%,rgba(6,9,12,0))}
+.treetab{display:flex;align-items:center;gap:6px;padding:5px 11px 6px;
+  border:1px solid rgba(228,224,214,.14);border-radius:8px;
+  background:rgba(228,224,214,.03);
+  font-family:var(--f-disp);font-weight:700;font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--smoke);white-space:nowrap;min-height:30px;
+  transition:color .13s,border-color .13s,background .13s}
+.treetab::before{content:"";width:8px;height:8px;border-radius:2px;flex:none;
+  background:var(--gc);box-shadow:0 0 6px var(--gc),inset 0 1px 0 rgba(255,255,255,.34)}
+.treetab i{font-style:normal;font-family:var(--f-mono);font-size:9.5px;
+  letter-spacing:.02em;color:var(--dim);font-variant-numeric:tabular-nums}
+.treetab:hover{color:var(--bone);border-color:rgba(228,224,214,.3);
+  background:rgba(228,224,214,.07)}
+.treetab.on{color:#FFFCF6;border-color:var(--gc);
+  background:color-mix(in srgb,var(--gc) 18%,transparent)}
+.treetab.on i{color:var(--gc)}
+@supports not (background:color-mix(in srgb,red 10%,transparent)){
+  .treetab.on{background:rgba(228,224,214,.1)}
+}
+.treefoot{position:absolute;left:0;right:0;bottom:0;z-index:2;pointer-events:none;
+  display:flex;align-items:baseline;justify-content:center;gap:10px;flex-wrap:wrap;
+  padding:10px 16px calc(var(--sa-b) + 12px);
+  background:linear-gradient(0deg,rgba(6,9,12,.94),rgba(6,9,12,0))}
+.treefoot b{font-family:var(--f-disp);font-weight:700;font-size:15px;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--bone)}
+.treefoot span{font-size:12.5px;color:var(--smoke)}
+.treefoot s{text-decoration:none;font-family:var(--f-mono);font-size:11.5px;
+  color:var(--dim);font-variant-numeric:tabular-nums}
+.treelink{position:absolute;left:0;top:0;pointer-events:none}
+.treelink line{stroke-width:calc(11px * var(--hxs));stroke-linecap:round}
+.treelink line.shut{stroke:rgba(228,224,214,.09)}
+/* an open path is the branch's own colour, so the route you have taken
+   through a board is visible without reading a single tile */
+.treelink line.open{stroke:var(--gdim)}
+.treelink line.live{stroke:var(--gc);filter:drop-shadow(0 0 4px var(--gc))}
+
+.hex{position:absolute;padding:0;border:0;background:var(--hxe);
+  -webkit-clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);
+  filter:drop-shadow(0 4px 7px rgba(0,0,0,.55));
+  transition:filter .14s,transform .12s}
+/* the face: the material, a sheen off the top edge, and the underside
+   turning away from it - which is what stops a flat fill looking like a
+   sticker and makes it look like a tile you could pick up */
+.hex .hxf{position:absolute;inset:2px;
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.26),rgba(255,255,255,0) 34%),
+    radial-gradient(74% 46% at 50% 2%,rgba(255,255,255,.20),rgba(255,255,255,0) 72%),
+    linear-gradient(180deg,rgba(0,0,0,0) 62%,rgba(0,0,0,.22)),
+    linear-gradient(170deg,var(--hx1),var(--hx2));
+  -webkit-clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)}
+.hex .hxc{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:1px;padding:0 15px;text-align:center}
+.hex .hxlv{font-style:normal;font-family:var(--f-mono);letter-spacing:.04em;
+  font-size:calc(9.5px * var(--hxs));color:rgba(255,252,246,.92);
+  font-variant-numeric:tabular-nums;
+  padding:calc(1px * var(--hxs)) calc(7px * var(--hxs));
+  border-radius:calc(9px * var(--hxs));background:rgba(0,0,0,.34);
+  box-shadow:inset 0 1px 0 rgba(0,0,0,.25)}
+.hex .hxi{width:calc(27px * var(--hxs));height:calc(27px * var(--hxs));
+  fill:rgba(255,252,246,.96);margin:calc(1px * var(--hxs)) 0}
+.hex .hxn{font-family:var(--f-disp);font-weight:700;letter-spacing:.04em;
+  font-size:calc(12.5px * var(--hxs));line-height:1.02;color:#FFFCF6;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hex .hxpg{display:block;width:calc(46px * var(--hxs));height:calc(3px * var(--hxs));
+  border-radius:2px;background:rgba(0,0,0,.3);overflow:hidden;
+  margin:calc(3px * var(--hxs)) 0 calc(1px * var(--hxs))}
+.hex .hxpg em{display:block;height:100%;transform:scaleX(0);transform-origin:left;
+  background:rgba(255,252,246,.86);transition:transform .2s}
+.hex.max .hxpg em{background:var(--amber)}
+.hex.shut .hxpg{opacity:.4}
+.hex .hxb{text-decoration:none;display:flex;align-items:center;gap:3px;
+  font-family:var(--f-mono);font-size:calc(9.5px * var(--hxs));
+  color:rgba(255,252,246,.86);
+  font-variant-numeric:tabular-nums;max-width:100%;overflow:hidden;white-space:nowrap}
+.hex .hxb svg.gi{opacity:1}
+
+/* ---- the four states ----
+
+   Every group carries its own --gc (the branch colour) and --gdim (the
+   same colour at working strength), set from one table in data.js. The
+   tile's own three tones come off those, so a new branch is a row in
+   that table and nothing here. The states have to look like four
+   different things at a glance, not four shades of one:
+
+     taken      the branch colour, lit, with its level on it
+     open       the same colour a touch darker, pale rim, ready to buy
+     too poor   the same tile, dimmed, with the price in rust
+     locked     grey slate, a padlock, and no colour at all             */
+.hex{--hxe:var(--gdim);--hx1:var(--gc);--hx2:var(--gdim)}
+.hex.fresh{--hxe:rgba(255,252,246,.55)}
+.hex.fresh .hxf{filter:saturate(.82) brightness(.9)}
+.hex.poor{opacity:.66;filter:saturate(.5)}
+.hex.poor .hxb{color:#FFB79C}
+.hex.max{--hxe:#E3A63F;filter:drop-shadow(0 4px 7px rgba(0,0,0,.55))
+                              drop-shadow(0 0 9px rgba(227,166,63,.45))}
+.hex.max .hxlv{color:#FFE6B4}
+.hex.shut{--hxe:#1A1F25;--hx1:#262E37;--hx2:#131920;cursor:help;
+  filter:drop-shadow(0 3px 5px rgba(0,0,0,.5)) saturate(.2)}
+.hex.shut .hxi{fill:rgba(228,224,214,.22)}
+.hex.shut .hxn{color:rgba(228,224,214,.42)}
+.hex.shut .hxlv,.hex.shut .hxb{color:rgba(228,224,214,.34)}
+.hex.shut .hxb svg.gi{display:none}
+
+.hex:hover{filter:drop-shadow(0 8px 14px rgba(0,0,0,.62)) brightness(1.16);
+  transform:translateY(-3px)}
+.hex:active{transform:translateY(0);filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)) brightness(1.06)}
+.hex.shut:hover{filter:drop-shadow(0 4px 7px rgba(0,0,0,.55)) brightness(1.25) saturate(.2);
+  transform:none}
+
+@media (max-width:760px){
+  .hex .hxn{font-size:11.5px}
+  .hex .hxi{width:23px;height:23px}
+  .treetab{padding:4px 8px 5px;font-size:9.5px;letter-spacing:.1em;gap:4px}
+  .treetab i{display:none}
+}
+}
+
+/* ---- map ----
+   The map is the screen, so it takes the screen: a 420px square floating
+   in the middle of a 950px panel was the drawer's habit, not a choice. */
+#sheetBody.mapscreen{display:flex;flex-direction:column;gap:11px;
+  height:100%;overflow:hidden}
+.mapwrap{border:1px solid var(--line);border-radius:4px;background:#06080A;padding:7px;
+  display:grid;place-items:center}
+.mapscreen .mapwrap{flex:1;min-height:0}
+.mapcv{width:100%;height:auto;max-width:560px;display:block;cursor:crosshair;
+  image-rendering:auto;border-radius:2px}
+.mapscreen .mapcv{width:auto;height:100%;max-width:100%;max-height:100%;
+  aspect-ratio:1/1}
+.mapscreen .note{flex:none;margin:0}
+
+/* ---- settings ---- */
+.setrow{border:1px solid var(--line);border-radius:4px;padding:12px 14px 13px;
+  background:rgba(228,224,214,.02);margin-bottom:8px;
+  background-image:linear-gradient(180deg,rgba(228,224,214,.035),rgba(228,224,214,0) 42%)}
+.setlab{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  margin-bottom:10px}
+.setlab span{font-family:var(--f-disp);font-size:14.5px;letter-spacing:.05em;font-weight:600}
+.setlab b{font-family:var(--f-mono);font-size:15px;color:var(--amber);
+  font-variant-numeric:tabular-nums}
+.sethint{margin:9px 0 0;font-size:12px;color:var(--dim);line-height:1.45}
+
+/* one rail, one grip, and the part behind the grip lit */
+.slider{-webkit-appearance:none;appearance:none;width:100%;height:20px;
+  background:transparent;display:block;cursor:pointer}
+.slider::-webkit-slider-runnable-track{height:6px;border-radius:3px;
+  background:linear-gradient(90deg,rgba(227,166,63,.85) 0%,rgba(227,166,63,.85) var(--p,50%),
+    rgba(0,0,0,.5) var(--p,50%),rgba(0,0,0,.5) 100%);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
+.slider::-moz-range-track{height:6px;border-radius:3px;background:rgba(0,0,0,.5);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
+.slider::-moz-range-progress{height:6px;border-radius:3px;background:rgba(227,166,63,.85)}
+.slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+  width:17px;height:17px;margin-top:-6px;border-radius:50%;
+  background:linear-gradient(180deg,#F0D398,#D08F26);
+  border:1.5px solid rgba(5,7,10,.85);
+  box-shadow:0 2px 6px rgba(0,0,0,.6)}
+.slider::-moz-range-thumb{width:17px;height:17px;border-radius:50%;
+  background:linear-gradient(180deg,#F0D398,#D08F26);
+  border:1.5px solid rgba(5,7,10,.85)}
+.slider:focus-visible{outline:2px solid var(--amber);outline-offset:4px}
+
+.qgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:7px;
+  margin-bottom:9px}
+.qbtn{border:1px solid var(--line);border-radius:4px;padding:11px 12px;text-align:left;
+  background:rgba(228,224,214,.02);display:flex;flex-direction:column;gap:3px;
+  background-image:linear-gradient(180deg,rgba(228,224,214,.035),rgba(228,224,214,0) 44%);
+  transition:background .14s,border-color .14s,transform .08s}
+.qbtn b{font-family:var(--f-disp);font-weight:700;font-size:15px;letter-spacing:.06em;
+  text-transform:uppercase}
+.qbtn s{text-decoration:none;font-size:11.5px;color:var(--smoke)}
+.qbtn:hover{background-color:rgba(228,224,214,.07);border-color:rgba(228,224,214,.3)}
+.qbtn:active{transform:translateY(1px)}
+.qbtn.on{border-color:rgba(227,166,63,.55);background-color:rgba(227,166,63,.11);
+  box-shadow:inset 0 0 0 1px rgba(227,166,63,.14)}
+.qbtn.on b{color:var(--amber)}
+
+/* ---- toggles ---- */
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;
+  padding:11px 13px;border:1px solid var(--line);background:rgba(228,224,214,.02);
+  margin-bottom:6px;min-height:48px}
+.toggle span{font-family:var(--f-disp);font-size:14.5px;letter-spacing:.05em;font-weight:600}
+.toggle .sw{width:38px;height:20px;flex:none;border:1px solid var(--line);
+  background:rgba(0,0,0,.5);position:relative;transition:background .2s,border-color .2s}
+.toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;
+  background:var(--dim);transition:transform .2s,background .2s}
+.toggle.on .sw{background:rgba(127,164,92,.28);border-color:rgba(127,164,92,.6)}
+.toggle.on .sw::after{transform:translateX(18px);background:var(--moss)}
+
+/* ---- modal ---- */
+#modal{position:absolute;inset:0;z-index:30;display:none;align-items:center;
+  justify-content:center;padding:22px;background:rgba(3,5,7,.78);
+  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+#modal.on{display:flex}
+/* the same panel as the console, at a quarter of the size */
+#modalBox{background:linear-gradient(180deg,rgba(21,27,33,.99),rgba(8,11,15,.99));
+  border:1px solid var(--line);border-radius:5px;
+  max-width:430px;width:100%;padding:22px;
+  box-shadow:0 26px 70px rgba(0,0,0,.72),inset 0 1px 0 rgba(228,224,214,.06);
+  transform:scale(.97);opacity:0;
+  transition:transform .2s cubic-bezier(.2,.9,.3,1),opacity .15s}
+#modal.on #modalBox{transform:none;opacity:1}
+#modalBox h3{font-family:var(--f-disp);font-weight:700;font-size:23px;letter-spacing:.1em;
+  text-transform:uppercase;margin-bottom:9px}
+#modalBox p{margin:0 0 4px;font-size:13px;color:var(--smoke);line-height:1.55}
+#modalBox .mrow{display:flex;gap:8px;margin-top:18px}
+#modalBox .mrow .btn{flex:1}
+.offres{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.offres s{text-decoration:none;font-family:var(--f-mono);font-size:14px;padding:5px 11px;
+  border:1px solid var(--line);border-radius:4px;background:rgba(228,224,214,.03);
+  font-variant-numeric:tabular-nums}
+
+/* ---- boot ---- */
+#boot{position:absolute;inset:0;z-index:40;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:20px;background:var(--void);
+  transition:opacity .6s}
+#boot.gone{opacity:0;pointer-events:none}
+#boot .bt{font-family:var(--f-disp);font-weight:700;font-size:52px;letter-spacing:.4em;
+  text-transform:uppercase;color:var(--bone);text-indent:.4em}
+#boot .bs{font-family:var(--f-disp);font-size:12px;letter-spacing:.34em;
+  text-transform:uppercase;color:var(--rust);margin-top:-14px}
+#boot .btrack{width:min(300px,64vw);height:2px;background:rgba(228,224,214,.1)}
+#boot .btrack>i{display:block;height:100%;background:var(--rust);transform-origin:left;
+  transform:scaleX(0);transition:transform .2s}
+#bootPct{font-family:var(--f-mono);font-size:11px;color:var(--dim)}
+.bootmsg{text-align:center;display:flex;flex-direction:column;gap:8px}
+.bootmsg b{font-family:var(--f-disp);font-size:20px;letter-spacing:.14em;text-transform:uppercase}
+.bootmsg span{font-family:var(--f-mono);font-size:12px;color:var(--rust)}
+
+.gone{display:none !important}
+
+/* ---- narrow screens ---- *
+   The two short rows are set up in the HUD block above - who you are and
+   where you are on top, what you have underneath. Only sizes belong here;
+   putting the grid arrangement in a second place is what let these two
+   blocks disagree about which cluster went where. */
+@media (max-width:640px){
+  #hud{gap:7px 8px;
+    padding-left:calc(var(--sa-l) + 8px);padding-right:calc(var(--sa-r) + 8px)}
+  .hptrack{min-width:60px}
+  #resRow .res{padding:6px 8px;gap:6px}
+  #resRow .res .rtx s{display:none}
+  #resRow .res b{font-size:12px}
+  #resRow .res .rmk{width:21px;height:21px}
+  #banner b{font-size:30px;letter-spacing:.24em}
+  .pad{width:96px;height:96px}
+  #movepad{left:calc(var(--sa-l) + 14px);bottom:calc(var(--sa-b) + var(--mm) + 26px)}
+  #aimpad{right:calc(var(--sa-r) + var(--rail-out));bottom:calc(var(--sa-b) + 104px)}
+  #recenter{bottom:calc(var(--sa-b) + 210px);padding:7px 11px}
+  .menulist{grid-template-columns:1fr}
+  .wstats{grid-template-columns:1fr}
+  .wstat{border-right:0}
+  .card{grid-template-columns:92px 1fr}
+  .cart{width:92px;height:76px}
+  .slots{grid-template-columns:1fr 1fr}
+  .ugrid{grid-template-columns:1fr 1fr}
+  .resgrid{grid-template-columns:repeat(3,1fr)}
+}
+@media (max-width:380px){
+  #resRow .more{display:none}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms !important;transition-duration:.01ms !important}
+}
+/* ============ the action cluster comes off blue ==========================
+   A glowing blue ring is the one piece of neon left on a HUD that is
+   otherwise dark slate and brass, and it was reading as sci-fi next to
+   the amber the rest of the interface uses for the day clock, the quest
+   markers and the coin count. Ready is amber now - which is what these
+   buttons used before the blue redesign, so it is a return rather than a
+   new idea.
+
+   The three states still have to be told apart at a glance under
+   pressure, and amber and rust are neighbours, so they are separated by
+   more than hue: ready is a steady warm ring, armed is rust AND pulses,
+   cooling is desaturated steel with the seconds under it. Colour alone
+   was never carrying that distinction anyway.
+   ======================================================================= */
+.act.ready{--ac:var(--amber);color:#F2CE86;
+  box-shadow:0 6px 18px rgba(0,0,0,.5),0 0 16px rgba(227,166,63,.26)}
+.act.ready::after{border-color:rgba(227,166,63,.55)}
+/* cooling loses its blue cast too, or the "off" state stays sci-fi */
+.act.cooling{--ac:#5C5E58;color:rgba(228,224,214,.72)}
+/* the pulse when it comes back, and the ripple under a thumb */
+.act.charge .asweep::after{
+  background:radial-gradient(circle,rgba(255,226,166,.7),rgba(255,226,166,0) 70%)}
+.act .asweep::before{border-color:rgba(255,238,206,.75)}
+/* the Q / G key chips were icy too - they sit ON the button, so they are
+   part of what reads as blue even though the ring is not */
+.act .akey{color:#E4E0D6;background:#1B1E20;border-color:rgba(200,192,174,.24)}
+.act .acd{border-color:rgba(200,192,174,.22)}
+
+/* AUTO is a switch on the same panel, so it follows */
+.act.auto.on{border-color:var(--amber);color:#F2CE86;
+  box-shadow:0 6px 18px rgba(0,0,0,.5),0 0 16px rgba(227,166,63,.26)}
+
+/* The trigger is not a charge state - it is the thing you are always
+   allowed to do - so it reads as bare metal rather than taking the amber
+   and competing with the two abilities above it. */
+.act.fire{
+  background:
+    radial-gradient(60% 60% at 50% 34%,rgba(228,224,214,.14),rgba(228,224,214,0) 72%),
+    linear-gradient(180deg,rgba(38,40,42,.96),rgba(12,14,16,.97));
+  border-color:rgba(214,208,192,.42);color:#E8E2D2;
+  box-shadow:0 10px 28px rgba(0,0,0,.58),0 0 18px rgba(228,224,214,.12),
+             inset 0 2px 0 rgba(236,232,220,.14)}
+.act.fire .fring{border-color:rgba(228,224,214,.24)}
+.act.fire:hover{border-color:rgba(240,236,224,.7)}
+.act.fire:active,.act.fire.on{border-color:#F4EFE0;color:#FFFBF0;
+  box-shadow:0 6px 18px rgba(0,0,0,.6),0 0 30px rgba(255,236,190,.4)}
+@keyframes fireHold{to{box-shadow:0 6px 18px rgba(0,0,0,.6),0 0 38px rgba(255,236,190,.52)}}
+
+/* the two pouch buttons sit in the same cluster */
+.usebtn{color:#E4E0D6}
+.usebtn:not(.off){border-color:rgba(227,166,63,.42)}
+
+/* ---- and the discs were never discs ----
+
+   `background` paints its FIRST layer on top, and the cooldown sweep was
+   written first:
+
+     background: conic-gradient(...) border-box,
+                 linear-gradient(dark) padding-box;
+
+   so the sweep covered the whole button and the dark interior underneath
+   it never showed. These have been solid pie charts since the HUD was
+   redesigned, not the ring that was intended - which is why a ready
+   ability arrived as one flat coin of colour. Blue was quiet enough to
+   get away with it; amber is not, and the honest fix is the one the
+   original rule was reaching for. Interior first, sweep behind it, and
+   the border becomes the ring. */
+.act.sm{
+  background:
+    linear-gradient(180deg,rgba(30,34,38,.96),rgba(12,15,18,.97)) padding-box,
+    conic-gradient(from -90deg,var(--ac,var(--amber)) var(--cd,0deg),
+                   rgba(190,184,170,.16) 0) border-box}
+/* a ring needs enough width to read as one */
+.act.sm{border:4px solid transparent}
+@media (max-width:900px){ .act.sm{border-width:5px} }
+
+/* a resource chip flinching as something lands in it */
+.res.pop{animation:resPop .3s cubic-bezier(.3,1.5,.5,1)}
+.res.pop .rmk{animation:resMark .3s cubic-bezier(.3,1.5,.5,1)}
+@keyframes resPop{
+  0%{transform:scale(1)}
+  36%{transform:scale(1.11)}
+  100%{transform:scale(1)}}
+@keyframes resMark{
+  0%{transform:scale(1)}
+  36%{transform:scale(1.3) rotate(-7deg);filter:brightness(1.7)}
+  100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){
+  .res.pop,.res.pop .rmk{animation:none}}
+
+/* ==================== the weapon selector ===============================
+   Built to the reference: a bare vertical list, numbers left, weapon
+   right, nothing behind it. The old rack was a bordered glass panel 222px
+   wide - an inventory pinned to the play area. This is the two figures
+   that matter and the silhouette they belong to.
+   ======================================================================= */
+#grack{width:auto;padding:0;border:0;border-radius:0;background:none;
+  -webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none}
+#grackList{display:flex;flex-direction:column;gap:2px;align-items:flex-start}
+
+.wsel{position:relative;display:grid;
+  grid-template-columns:var(--wsel-num,42px) var(--wsel-pic,104px);
+  align-items:center;gap:8px;
+  padding:3px 6px 3px 2px;border:0;background:none;border-radius:6px;
+  /* Dim enough to recede, bright enough to read over a lit street. At
+     .44 the steel of an unheld gun disappeared into daylight ground,
+     which defeats a list you are meant to glance at. */
+  opacity:.66;
+  -webkit-tap-highlight-color:transparent;
+  transition:opacity .16s,transform .16s,background .16s}
+.wsel:hover{opacity:.72;background:rgba(228,224,214,.05)}
+
+/* the two numbers, stacked and right-aligned so the magazine reads as
+   the headline and the capacity as its footnote */
+.wsel .wnum{display:flex;flex-direction:column;align-items:flex-end;
+  line-height:1;min-width:0}
+.wsel .wnum b{font-family:var(--f-disp);font-weight:700;font-size:21px;
+  letter-spacing:.01em;color:#EFE9D9;font-variant-numeric:tabular-nums;
+  text-shadow:0 1px 3px rgba(0,0,0,.85);transition:color .14s}
+.wsel .wnum s{text-decoration:none;font-family:var(--f-mono);font-size:11.5px;
+  color:rgba(228,224,214,.5);font-variant-numeric:tabular-nums;margin-top:1px;
+  text-shadow:0 1px 2px rgba(0,0,0,.8)}
+
+.wsel .wpic{display:block;line-height:0}
+.wsel .wpic canvas{display:block;width:100%;height:auto;
+  /* a dark halo, so a steel silhouette separates from whatever ground
+     happens to be behind it rather than only from a dark panel */
+  filter:drop-shadow(0 0 2px rgba(0,0,0,.9)) drop-shadow(0 2px 3px rgba(0,0,0,.7))}
+
+/* the number key, only worth showing on a device that has one */
+.wsel .wkey{position:absolute;left:-11px;top:50%;transform:translateY(-50%);
+  font-style:normal;font-family:var(--f-mono);font-size:9px;
+  color:rgba(228,224,214,.3)}
+@media (pointer:coarse){ .wsel .wkey{display:none} }
+
+/* Carried. A bar rather than a box - it marks the row without drawing
+   one, which is the whole point of this being transparent. */
+.wsel.on{opacity:1}
+.wsel.on::before{content:"";position:absolute;left:-4px;top:5px;bottom:5px;
+  width:2px;border-radius:2px;background:var(--amber);
+  box-shadow:0 0 8px rgba(227,166,63,.6)}
+.wsel.on .wnum b{color:#FFF6E4}
+.wsel.on .wkey{color:rgba(227,166,63,.7)}
+.wsel.lo .wnum b{color:#F0A882}
+.wsel.rel .wnum b{color:var(--amber);animation:wselRel .5s ease-in-out infinite}
+@keyframes wselRel{50%{opacity:.45}}
+/* the swap itself: the row you moved to lifts once */
+.wsel.swap{animation:wselSwap .26s cubic-bezier(.3,1.4,.5,1)}
+@keyframes wselSwap{
+  0%{transform:translateX(-6px) scale(.96)}
+  100%{transform:translateX(0) scale(1)}}
+.wsel:active{transform:scale(.96)}
+@media (prefers-reduced-motion:reduce){
+  .wsel.swap,.wsel.rel .wnum b{animation:none}}
+
+/* ==================== the pouch ========================================
+   Two controls, the same language as the weapon list: the icon, the
+   count, and as little else as will still read over a lit street.
+   ======================================================================= */
+.usebtn{position:relative;width:52px;height:52px;border-radius:13px;
+  display:grid;place-items:center;gap:0;overflow:hidden;
+  border:1px solid rgba(214,208,192,.22);
+  background:linear-gradient(180deg,rgba(22,26,30,.72),rgba(10,13,16,.8));
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  color:#E4E0D6;
+  -webkit-tap-highlight-color:transparent;
+  transition:border-color .16s,transform .1s,opacity .16s}
+.usebtn svg{width:24px;height:24px;fill:currentColor;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.8));
+  transition:transform .14s}
+/* the count sits in the corner rather than under the icon, so the icon
+   keeps the middle and stays the thing you recognise */
+.usebtn b{position:absolute;right:3px;bottom:2px;
+  font-family:var(--f-mono);font-size:11.5px;line-height:1;
+  color:#F2EEE2;text-shadow:0 1px 3px rgba(0,0,0,.9);
+  font-variant-numeric:tabular-nums}
+/* how much of it you have, or how much of the wait is done */
+.usebtn::after{content:"";position:absolute;left:0;right:0;bottom:0;
+  height:2px;width:var(--fill,100%);
+  background:var(--amber);opacity:.8;
+  transition:width .14s linear}
+.usebtn:not(.off):hover{border-color:rgba(227,166,63,.55)}
+.usebtn:active{transform:scale(.9)}
+.usebtn.off{opacity:.44}
+.usebtn.off::after{background:#5C5E58}
+.usebtn.empty::after{width:0}
+/* cooling reads as waiting, empty reads as gone - different problems */
+.usebtn.cooling b{color:#CFC9BA}
+.usebtn.used{animation:pouchUse .34s cubic-bezier(.3,1.5,.5,1)}
+.usebtn.used svg{animation:pouchIcon .34s cubic-bezier(.3,1.5,.5,1)}
+@keyframes pouchUse{
+  0%{transform:scale(1)}30%{transform:scale(.84)}100%{transform:scale(1)}}
+@keyframes pouchIcon{
+  0%{transform:scale(1)}30%{transform:scale(1.34) rotate(-10deg)}
+  100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){
+  .usebtn.used,.usebtn.used svg{animation:none}}
+
+/* ==================== responsive pass ==================================
+   One scale knob instead of a rule per element. Everything below is
+   expressed against --ui, so a small phone shrinks the whole instrument
+   set together and nothing drifts out of proportion with the rest.
+   ======================================================================= */
+:root{--ui:1;--wsel-num:42px;--wsel-pic:104px}
+
+/* tablets - the iPad case, where there is room but the thumbs are still
+   thumbs, so controls stay large and only the furniture shrinks */
+@media (min-width:768px) and (max-width:1180px){
+  :root{--col:200px;--wsel-pic:96px}
+}
+/* phones in portrait */
+@media (max-width:560px){
+  :root{--wsel-num:34px;--wsel-pic:76px}
+  .wsel .wnum b{font-size:17px}
+  .wsel .wnum s{font-size:10px}
+  .wsel{gap:6px;padding:2px 4px 2px 2px}
+  .usebtn{width:48px;height:48px;border-radius:12px}
+  .usebtn svg{width:22px;height:22px}
+}
+/* phones in landscape - short and wide, so vertical space is the scarce
+   thing and the stacked left column has to give some back */
+@media (max-height:460px){
+  :root{--navh:48px}
+  #grackList{gap:0}
+  .wsel .wnum b{font-size:16px}
+  .wsel{padding:1px 4px 1px 2px}
+  #quests{display:none}
+  .usebtn{width:44px;height:44px}
+}
+/* very narrow - the weapon picture goes before the numbers do, because
+   the numbers are the part you are actually reading */
+@media (max-width:380px){
+  :root{--wsel-pic:60px;--wsel-num:30px}
+}
+
+/* ---- two leftovers from the layout this replaced ----
+
+   The rack used to be hidden below 820px because a 222px bordered panel
+   is more screen than a phone can spare. That was true of the panel and
+   is not true of a transparent list, which is the whole reason for
+   rebuilding it - so it comes back, and the weapon you are holding is
+   visible on the device most likely to be holding it.
+
+   And the minimap was still absolutely positioned to the screen corner
+   from before it lived in a flex row, so it sat underneath the pouch
+   buttons instead of beside them. Putting it back in the flow is what
+   stops the two overlapping at every width. */
+@media (max-width:820px),(max-height:560px){
+  #grack{display:block}
+}
+#gearcol #mmwrap{position:relative;left:auto;bottom:auto;flex:none}
+body.basemode #grack,body.indoors #grack{display:none}
+
+/* ---- the pouch count had a disc under it ----
+   An older rule gave `.usebtn b` a blue gradient pill. The rework set
+   its position, size and colour but not its background, so the gradient
+   survived - and once the grenade's "ready" state stopped printing a
+   character, what was left was a bare blue circle sitting in the corner
+   of the button meaning nothing. */
+.usebtn b{background:none;border-radius:0;border:0;padding:0;min-width:0}
+.usebtn b:empty{display:none}
+
+/* ---- frame counter ---- */
+.fpsmeter{position:absolute;z-index:14;pointer-events:none;
+  right:calc(var(--sa-r) + 10px);top:calc(var(--sa-t) + 62px);
+  display:flex;flex-direction:column;align-items:flex-end;line-height:1;
+  padding:4px 7px;border-radius:7px;
+  background:rgba(8,11,14,.6);border:1px solid rgba(214,208,192,.16);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.fpsmeter b{font-family:var(--f-mono);font-size:14px;color:#8FE08A;
+  font-variant-numeric:tabular-nums}
+.fpsmeter s{text-decoration:none;font-family:var(--f-mono);font-size:9px;
+  color:rgba(228,224,214,.5);margin-top:2px;font-variant-numeric:tabular-nums}
+.fpsmeter.mid b{color:var(--amber)}
+.fpsmeter.bad b{color:#F0806A}
+@media (max-width:560px){
+  .fpsmeter{top:calc(var(--sa-t) + 54px);padding:3px 5px}
+  .fpsmeter b{font-size:12px}
+}
+
+/* ---- the survivor card, aligned ----
+   `.bar` is a three-column grid and its middle column was the only one
+   allowed to shrink - except a grid item's default minimum is its
+   content, so the track refused to go below its natural width and the
+   figure on the end was pushed clean out of the row. `minmax(0,1fr)` is
+   what lets it actually give way. */
+.bar{grid-template-columns:15px minmax(0,1fr) auto;gap:5px;align-items:center}
+.btrack{min-width:0}
+.bar u{font-size:10px;letter-spacing:0;white-space:nowrap}
+.bar s{width:15px}
+.svcol{min-width:0}
+/* the two rows get the same rhythm rather than each finding its own */
+.svcol{display:flex;flex-direction:column;gap:5px;justify-content:center}
+
+/* the weapon card lines its name up with the bar under it, and the
+   round count sits on the same optical line as the magazine mark */
+#wpnCard .wcol{min-width:0;display:flex;flex-direction:column;gap:4px;
+  justify-content:center}
+#wpnCard .wname{font-size:12px;letter-spacing:.09em;line-height:1;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#wpnCard .wammo{display:flex;align-items:center;gap:4px;line-height:1}
+#wpnCard .wammo b{font-family:var(--f-mono);font-size:11px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+#wpnCard .wammo .gi{width:12px;height:12px;flex:none}
+
+/* The HP figure was still `position:absolute; top:0` from the layout
+   before this one, so it never entered the bar's grid - the third column
+   measured 0px and the number sat pinned to the top of the card, a row
+   and a half above the bar it belongs to. Nothing about font size or
+   wrapping could fix that; it had to be back in the flow. */
+.bar u{position:static;top:auto;right:auto;bottom:auto;left:auto}
+
+/* Room for the bar to actually be a bar.
+
+   With the figure back in the grid it takes 38px of a 90px column, and
+   what is left over is a 27px track - which reads as a swatch, not a
+   gauge. The portrait and the level chip give some back, and the column
+   itself widens a little; the card is in the corner of the screen with
+   space beside it either way. */
+:root{--col:248px}
+#sv{gap:7px;padding:7px 9px 7px 7px}
+#sv .svmark{width:40px;height:40px}
+#sv .svlvl{min-width:20px;font-size:15px}
+.bar{gap:6px}
+.bar .btrack{min-width:44px}
+
+/* ==================== buttons, one language =============================
+   The console grew a button type per screen - `.tool`, `.go`, `.ghost`,
+   `.qbtn`, `.sbtn`, the catalogue cards - and each learned its own hover
+   and press by hand, so some lifted, some dimmed and some did nothing at
+   all. These are the shared manners: a press that moves, a focus ring
+   that only shows for a keyboard, and a sheen that sweeps once when
+   something becomes available. Colour and size stay per type.
+   ======================================================================= */
+/* `.gcard` is deliberately NOT in this list. It is a card with a
+   picture and two lines under it, and `overflow:hidden` on one turns a
+   squeezed card into a picture with its name cut off - which is exactly
+   what happened to the whole arsenal. */
+.tool,.go,.ghost,.qbtn,.sbtn,.cbtn,.qcard,.abtn{
+  position:relative;overflow:hidden;
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .09s cubic-bezier(.3,1.3,.5,1),
+             border-color .16s, background .16s, box-shadow .16s, opacity .16s}
+.tool:active,.go:active,.ghost:active,.qbtn:active,.sbtn:active,
+.cbtn:active,.gcard:active,.abtn:active{transform:scale(.985)}
+.tool:disabled,.go.off,.ghost.off,.sbtn.off{opacity:.45;pointer-events:none}
+
+/* the ripple every press leaves - one element, no markup needed */
+.tool::after,.go::after,.ghost::after,.qbtn::after,.sbtn::after,.cbtn::after,
+.abtn::after{
+  content:"";position:absolute;left:50%;top:50%;width:8px;height:8px;
+  border-radius:50%;background:rgba(255,246,224,.34);
+  transform:translate(-50%,-50%) scale(0);opacity:0;pointer-events:none}
+.tool:active::after,.go:active::after,.ghost:active::after,.qbtn:active::after,
+.sbtn:active::after,.cbtn:active::after,.abtn:active::after{
+  animation:btnRipple .42s ease-out}
+@keyframes btnRipple{
+  0%{transform:translate(-50%,-50%) scale(0);opacity:.5}
+  100%{transform:translate(-50%,-50%) scale(26);opacity:0}}
+
+/* keyboard focus is visible; mouse focus is not, because a ring that
+   appears on every click reads as a stuck state */
+.tool:focus-visible,.go:focus-visible,.ghost:focus-visible,.qbtn:focus-visible,
+.sbtn:focus-visible,.gcard:focus-visible,.nbtn:focus-visible,.wsel:focus-visible,
+.act:focus-visible,.usebtn:focus-visible{
+  outline:2px solid var(--amber);outline-offset:2px}
+
+/* Affordable / newly unlocked things sweep once. The sheen is the only
+   motion in a list of forty cards, so it has to mean something: it runs
+   on what you can act on now, not on everything. */
+.go:not(.off)::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(105deg,rgba(255,240,206,0) 38%,
+             rgba(255,240,206,.20) 50%,rgba(255,240,206,0) 62%);
+  transform:translateX(-120%);
+  animation:btnSheen 3.4s ease-in-out infinite}
+@keyframes btnSheen{0%,72%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+
+/* ---- structure: the console reads as rows, not as a wall ---- */
+.sheet .section,.sheet section{margin-bottom:14px}
+.sheet h4,.sheet .secttl{
+  font-family:var(--f-disp);font-size:10px;font-weight:700;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--smoke);
+  display:flex;align-items:center;gap:9px;margin:0 0 8px}
+/* a rule that runs to the end of the row, so a heading looks like a
+   heading instead of a stray label */
+.sheet h4::after,.sheet .secttl::after{
+  content:"";flex:1 1 auto;height:1px;background:var(--hud-line)}
+
+/* rows of figures line up on one grid instead of each finding its own */
+.statrow,.srow{display:grid;grid-template-columns:1fr auto;align-items:baseline;
+  gap:12px;padding:5px 9px;border-radius:6px}
+.statrow:nth-child(odd),.srow:nth-child(odd){background:rgba(228,224,214,.028)}
+.statrow b,.srow b{font-family:var(--f-mono);font-variant-numeric:tabular-nums;
+  color:var(--bone)}
+
+@media (prefers-reduced-motion:reduce){
+  .go:not(.off)::before,.tool:active::after,.go:active::after,.ghost:active::after,
+  .qbtn:active::after,.sbtn:active::after,.cbtn:active::after,.abtn:active::after{
+    animation:none}
+  .tool:active,.go:active,.ghost:active,.qbtn:active,.sbtn:active,
+  .cbtn:active,.gcard:active,.abtn:active{transform:none}
+}
+
+/* ---- the weapon bay is short now ----
+   The picture is a reference, not the page. Capping it is what puts the
+   stats and the attachment slots back above the fold on a laptop, which
+   is the difference between a page you can use and one where the rows
+   exist but no tap can reach them. */
+.wbay .stage{max-height:190px;min-height:120px}
+.wbay .stage canvas{max-height:180px}
+@media (max-height:760px){ .wbay .stage{max-height:150px} }
+@media (max-height:620px){ .wbay .stage{max-height:120px} }
+
+/* the slots read as a row of fittings rather than a stack of buttons */
+/* Four across rather than three: seven fittings then take two rows
+   instead of three, which is what keeps the last one (Ammo) above the
+   fold on a laptop instead of one row below it. */
+.wbay .slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(102px,1fr));
+  gap:6px}
+.wbay .slot{padding:6px 8px;border-radius:8px;text-align:left;
+  border:1px solid var(--hud-line);
+  background:linear-gradient(180deg,rgba(26,32,38,.8),rgba(12,16,20,.86))}
+.wbay .slot i{display:block;font-style:normal;font-family:var(--f-disp);
+  font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.wbay .slot b{display:block;font-size:12px;color:var(--smoke);margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wbay .slot.has{border-color:rgba(227,166,63,.45)}
+.wbay .slot.has b{color:var(--amber)}
+
+/* ---- the skill tooltip ---- */
+.sktip{position:fixed;left:0;top:0;z-index:60;pointer-events:none;
+  max-width:250px;padding:8px 11px;border-radius:9px;
+  border:1px solid rgba(227,166,63,.4);
+  background:rgba(12,16,20,.96);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  box-shadow:0 10px 30px rgba(0,0,0,.6);
+  opacity:0;transition:opacity .12s}
+.sktip.on{opacity:1}
+.sktip b{display:block;font-family:var(--f-disp);font-size:12px;letter-spacing:.06em;
+  color:var(--bone)}
+.sktip span{display:block;font-size:11.5px;line-height:1.35;color:var(--smoke);
+  margin-top:3px}
+.sktip s{display:block;text-decoration:none;font-family:var(--f-mono);font-size:10px;
+  color:var(--amber);margin-top:5px}
+.sktip.lock{border-color:rgba(150,150,150,.3)}
+.sktip.lock s{color:var(--dim)}
+@media (pointer:coarse){ .sktip{display:none} }
+
+/* ==================== the corner plate ==================================
+   Three cards that were each solving their own layout: different
+   heights, different paddings, the portrait sunk into a near-black well
+   that hid the face in it, and a weapon row whose name, bar and round
+   count all sat on different baselines. One rhythm for all three.
+   ======================================================================= */
+.hcol.l{gap:7px}
+#sv,#wpnCard,.quest{
+  border:1px solid rgba(214,208,192,.14);
+  background:linear-gradient(180deg,rgba(20,26,32,.82),rgba(10,14,18,.88));
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  box-shadow:0 6px 20px rgba(0,0,0,.42)}
+
+/* the portrait: lit enough to read a face against */
+#sv .svmark{background:linear-gradient(165deg,#3B5468,#1B2833);
+  border-color:rgba(176,212,240,.34)}
+#sv .svlvl{font-family:var(--f-disp);font-weight:700;color:#0E141A;
+  background:linear-gradient(180deg,#8FD0FF,#4EA8E8);
+  border-radius:7px;padding:1px 6px;line-height:1.25;
+  box-shadow:0 2px 6px rgba(0,0,0,.45)}
+
+/* the weapon row, on one baseline */
+#wpnCard{display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;gap:9px;padding:7px 10px 7px 8px}
+#wpnCard .wpic{width:62px;flex:none;line-height:0}
+#wpnCard .wpic canvas{width:100%;height:auto;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.7))}
+#wpnCard .wbar{display:block;height:4px;border-radius:3px;margin-top:5px;
+  background:rgba(4,8,12,.7);overflow:hidden}
+#wpnCard .wbar>i{display:block;height:100%;transform-origin:left;border-radius:3px}
+
+/* the objective: the bar is part of the row, not a stray line under it */
+.quest{padding:7px 10px}
+.quest .qbar{height:4px;border-radius:3px;background:rgba(4,8,12,.7);overflow:hidden}
+.quest .qbar>i{display:block;height:100%;transform-origin:left;
+  background:linear-gradient(90deg,var(--amber),#F4CE7E);border-radius:3px}
+.quest .qn{font-size:11.5px;letter-spacing:.09em}
+.quest .qd{font-size:10px;color:var(--dim)}
+
+@media (max-width:560px){
+  #sv,#wpnCard,.quest{border-radius:10px}
+  #wpnCard .wpic{width:52px}
+}
+
+/* ---- the arsenal list scrolls; its cards do not shrink ----
+
+   `.grl` is a flex column. Thirteen cards that each need 116px were
+   being asked to fit 567px, and the default `flex-shrink: 1` obliged -
+   every card squeezed to 38px, so the gun art overflowed and the name
+   and level under it were pushed out of the box entirely. The fix is
+   the one this layout has needed everywhere it has come up: size the
+   strip by the cards and let the strip scroll, rather than sizing the
+   cards by the strip. */
+.wside .grl{overflow-y:auto;overflow-x:hidden;max-height:100%;
+  padding-right:4px;
+  scrollbar-width:thin;scrollbar-color:rgba(214,208,192,.28) transparent}
+.wside .grl::-webkit-scrollbar{width:7px}
+.wside .grl::-webkit-scrollbar-thumb{
+  background:rgba(214,208,192,.24);border-radius:4px}
+.wside .grl::-webkit-scrollbar-track{background:transparent}
+.wside .gcard{flex:0 0 auto;overflow:visible}
+
+</style>
+
+<canvas id="scene"></canvas>
+
+<div id="hud">
+  <div class="hcol l">
+    <!-- the survivor: portrait, level, health, experience -->
+    <button id="sv" class="card" title="Survivor">
+      <span class="svmark">
+        <canvas id="svFace" width="88" height="88"></canvas>
+        <i id="svRing" hidden></i>
+        <em id="svXp" hidden></em>
+      </span>
+      <b id="svLvl" class="svlvl">1</b>
+      <span class="svcol">
+        <span class="bar hp"><s>HP</s><span class="btrack"><i id="svHp"></i></span><u id="svHpNum">100</u></span>
+        <span class="bar xp"><s>XP</s><span class="btrack"><i id="svXpBar"></i></span><u id="svXpNum">0</u></span>
+      </span>
+    </button>
+
+    <!-- what is in your hands -->
+    <button id="wpnCard" class="card" title="Weapons">
+      <span class="wpic"><canvas id="wpnArt" width="128" height="52"></canvas></span>
+      <span class="wcol">
+        <span id="svWpn" class="wname">M9</span>
+        <span class="wbar"><i id="wpnBar"></i></span>
+      </span>
+      <span class="wammo"><svg class="gi" viewBox="0 0 24 24" aria-hidden="true"><path id="magPath"/></svg><b id="svAmmo">12 / 12</b></span>
+    </button>
+
+    <!-- what you are being asked to do -->
+    <div id="quests"></div>
+  </div>
+
+  <div class="hmid">
+    <div id="worldChip" class="card">
+      <span id="wcOrb"></span>
+      <span class="wctext">
+        <span id="wcDay">Day 1</span>
+        <span id="wcTime">08:10</span>
+        <span id="wcPhase">Dawn</span>
+        <span id="wcZone">Suburbs</span>
+      </span>
+    </div>
+    <div id="threat" class="card"><span class="dot"></span><span id="threatN"></span></div>
+  </div>
+
+  <div class="hcol rcol">
+    <div id="resRow"></div>
+  </div>
+</div>
+
+<div id="modeChip" class="inst">
+  <span id="modeText">Placing</span>
+  <button id="modeRot" title="Turn a quarter (R)">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v4h-4"/></svg>
+    <b>R</b>
+  </button>
+  <button id="modeCancel">ESC</button>
+</div>
+
+<button id="recenter">&#9678; Recentre</button>
+<div id="acts">
+  <div class="arow">
+    <button id="actDash" class="act sm" aria-label="Dash">
+      <span class="asweep"></span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path id="dashPath"/></svg>
+      <i class="akey">Q</i><u class="acd"></u>
+    </button>
+    <button id="actNade" class="act sm" aria-label="Grenade">
+      <span class="asweep"></span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path id="nadePath"/></svg>
+      <i class="akey">G</i><u class="acd"></u>
+    </button>
+  </div>
+  <div class="arow">
+    <button id="actAuto" class="act auto" aria-label="Auto fire">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path id="autoPath"/></svg>
+      <b>AUTO</b>
+    </button>
+    <button id="actFire" class="act fire" aria-label="Fire">
+      <span class="fring"></span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path id="firePath"/></svg>
+    </button>
+  </div>
+</div>
+<div id="aimpad" class="pad" aria-label="Aim"><i></i></div>
+
+<div id="baseui" class="gone">
+  <div id="toolrail"></div>
+  <div id="basedock">
+    <div class="bdhead">
+      <div class="bdtabs" id="bdTabs"></div>
+      <div class="bdsum" id="bdSum"></div>
+      <button id="bdExit">Done</button>
+    </div>
+    <div class="bdbody">
+      <div class="bdlist" id="bdList"></div>
+    </div>
+    <div class="bdfoot" id="bdDetail"></div>
+  </div>
+</div>
+
+<div id="bpop" class="gone"></div>
+
+<nav id="navbar" aria-label="Menus"></nav>
+
+<div id="gearcol">
+  <div id="grack" aria-label="Weapons"><div id="grackList"></div></div>
+  <div class="mmrow">
+    <div id="mmwrap" aria-label="Map">
+      <canvas id="mmCv" width="264" height="264"></canvas>
+      <span class="mmring"></span>
+      <span class="mmN">N</span>
+      <span class="mmexp" id="mmExp"></span>
+    </div>
+    <div id="useCol">
+      <button id="useNade" class="usebtn" aria-label="Grenades">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path id="useNadePath"/></svg>
+        <b>2</b>
+      </button>
+      <button id="useMed" class="usebtn" aria-label="Medical">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path id="useMedPath"/></svg>
+        <b>3</b>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="flyers"></div>
+<div id="toasts"></div>
+<div id="banner"></div>
+<div id="hint"></div>
+
+<div id="scrim"></div>
+
+<div id="sheetWrap">
+  <aside id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <header class="shead">
+      <div class="st">
+        <h3 id="sheetTitle">Menu</h3>
+        <p id="sheetSub"></p>
+      </div>
+      <button id="sheetClose" title="Close  (Esc)">&#10005;</button>
+    </header>
+    <div class="sframe">
+      <nav id="sheetNav" aria-label="Sections"></nav>
+      <div id="sheetBody"></div>
+    </div>
+  </aside>
+</div>
+
+<div id="modal"><div id="modalBox"></div></div>
+
+<div id="boot">
+  <div class="bt">Deadzone</div>
+  <div class="bs">Hold the night</div>
+  <div class="btrack"><i id="bootBar"></i></div>
+  <div id="bootPct">0%</div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/data.js"></script>
+<script src="js/citydata.js"></script>
+<script src="js/world.js"></script>
+<script src="js/city.js"></script>
+<script src="js/art.js"></script>
+<script src="js/artprops.js"></script>
+<script src="js/artstreet.js"></script>
+<script src="js/artcity.js"></script>
+<script src="js/flow.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/render.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/build.js"></script>
+<script src="js/base.js"></script>
+<!-- going inside is its own scene, unlike every other mode -->
+<script src="js/artint.js"></script>
+<script src="js/interior.js"></script>
+<script src="js/input.js"></script>
+<!-- the weapon meshes are unchanged from the previous build and stay at the
+     artifact root, so a republish does not have to re-upload 277KB of them -->
+<!-- guns.js (271KB of weapon meshes) and js/weapon.js are not loaded.
+     The weapon bay shows the flat drawing, so nothing reads the mesh
+     data, and a quarter of a megabyte does not need fetching and
+     parsing on every load - phones included. -->
+<!-- flat side-profile icons; the mesh above is only for the inspector -->
+<script src="js/gunicon.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/save.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/boot.js"></script>
